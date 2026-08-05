@@ -407,6 +407,7 @@
           <button class="btn-primary" (click)="navegar('webos')">Enviar a LG webOS</button>
           <button class="btn-secondary" (click)="navegar('dashboard')">Abrir dashboard</button>
         </div>
+        <p class="subtitle">Si tu profesor quiere instalar el smartwatch en su emulador, puede descargar el APK desde <a [href]="apkDownloadUrl" target="_blank" rel="noopener">este enlace público</a>.</p>
       </div>
     </div>
     <div class="flutter-panel">
@@ -586,6 +587,7 @@
       <section class="admin-login-card">
         <h3>Ingreso administrativo</h3>
         <p>{{ adminMensaje }}</p>
+        <p class="subtitle">Descarga directa del APK del smartwatch: <a [href]="apkDownloadUrl" target="_blank" rel="noopener">{{ apkDownloadUrl }}</a></p>
         <div class="form-row">
           <div class="form-group">
             <label for="admin-user">Usuario</label>

@@ -8,6 +8,7 @@ const distRootDir = path.join(rootDir, 'dist', 'pagina-web');
 const distDir = fs.existsSync(path.join(distRootDir, 'browser'))
   ? path.join(distRootDir, 'browser')
   : distRootDir;
+const publicRootDir = path.join(rootDir, 'public');
 const publicBiomedicaDir = path.join(rootDir, 'public', 'biomedica');
 const assetsDir = path.join(rootDir, 'src', 'assets');
 const port = process.env.PORT || 4300;
@@ -101,6 +102,60 @@ function validatePasswordStrength(password) {
     && /[^A-Za-z0-9]/.test(password);
 }
 
+function inferWearableName(wearableId) {
+  return `Wear OS ${String(wearableId).slice(-6).toUpperCase()}`;
+}
+
+function createWearableRecord(wearableId, source = 'wear-os-remote') {
+  return {
+    id: wearableId,
+    nombre: inferWearableName(wearableId),
+    modelo: source === 'wear-os-emulator' ? 'Emulador Wear OS remoto' : 'Wearable remoto conectado',
+    estado: 'Conectado',
+    bateria: 100,
+    ritmoCardiaco: 72,
+    spo2: 98,
+    temperatura: 36.6,
+    ubicacion: 'Sesion remota del profesor',
+  };
+}
+
+function createTelemetrySnapshot(wearableId, previousTelemetry, body = {}) {
+  return {
+    wearableId,
+    heartRate: Number(body.heartRate) || previousTelemetry.heartRate,
+    spo2: Number(body.spo2) || previousTelemetry.spo2,
+    temperature: Number(body.temperature) || previousTelemetry.temperature,
+    battery: Number(body.battery) || previousTelemetry.battery,
+    steps: Number(body.steps) || previousTelemetry.steps,
+    stress: Number(body.stress) || previousTelemetry.stress,
+    respiratoryRate: Number(body.respiratoryRate) || previousTelemetry.respiratoryRate,
+    hrv: Number(body.hrv) || previousTelemetry.hrv,
+    signalQuality: Number(body.signalQuality) || previousTelemetry.signalQuality,
+    perfusionIndex: Number(body.perfusionIndex) || previousTelemetry.perfusionIndex,
+    sequence: Number(body.sequence) || ((previousTelemetry.sequence || 0) + 1),
+    source: body.source || previousTelemetry.source,
+    timestamp: nowIso(),
+  };
+}
+
+const initialTelemetry = {
+  wearableId: 'wear-01',
+  heartRate: 72,
+  spo2: 98,
+  temperature: 36.6,
+  battery: 84,
+  steps: 8430,
+  stress: 22,
+  respiratoryRate: 14,
+  hrv: 64,
+  signalQuality: 96,
+  perfusionIndex: 5.2,
+  sequence: 0,
+  source: 'bridge-seed',
+  timestamp: nowIso(),
+};
+
 const state = {
   wearables: [
     {
@@ -160,23 +215,14 @@ const state = {
   activeWearableId: 'wear-01',
   activeTvId: 'tv-lg-01',
   tvPaired: false,
-  lastTelemetry: {
-    wearableId: 'wear-01',
-    heartRate: 72,
-    spo2: 98,
-    temperature: 36.6,
-    battery: 84,
-    steps: 8430,
-    stress: 22,
-    respiratoryRate: 14,
-    hrv: 64,
-    signalQuality: 96,
-    perfusionIndex: 5.2,
-    sequence: 0,
-    source: 'bridge-seed',
-    timestamp: new Date().toISOString(),
+  lastTelemetry: { ...initialTelemetry },
+  telemetryHistory: [{ ...initialTelemetry }],
+  telemetryByWearable: {
+    'wear-01': { ...initialTelemetry },
   },
-  telemetryHistory: [],
+  telemetryHistoryByWearable: {
+    'wear-01': [{ ...initialTelemetry }],
+  },
   adminUsers: [
     {
       id: 'admin-001',
@@ -299,6 +345,28 @@ function pickWearable(id) {
   return state.wearables.find((item) => item.id === id) || state.wearables[0];
 }
 
+function ensureWearable(wearableId, source) {
+  let wearable = state.wearables.find((item) => item.id === wearableId);
+  if (!wearable) {
+    wearable = createWearableRecord(wearableId, source);
+    state.wearables.unshift(wearable);
+  }
+  return wearable;
+}
+
+function getTelemetryForWearable(wearableId) {
+  return state.telemetryByWearable[wearableId] || state.lastTelemetry;
+}
+
+function getTelemetryHistoryForWearable(wearableId) {
+  return state.telemetryHistoryByWearable[wearableId] || [];
+}
+
+function syncActiveTelemetry() {
+  state.lastTelemetry = { ...getTelemetryForWearable(state.activeWearableId) };
+  state.telemetryHistory = [...getTelemetryHistoryForWearable(state.activeWearableId)];
+}
+
 function pickTv(id) {
   return state.tvs.find((item) => item.id === id) || state.tvs[0];
 }
@@ -356,15 +424,18 @@ const server = http.createServer(async (req, res) => {
       activeWearableId: state.activeWearableId,
       activeTvId: state.activeTvId,
       tvPaired: state.tvPaired,
-      lastTelemetry: state.lastTelemetry,
+      lastTelemetry: getTelemetryForWearable(state.activeWearableId),
     });
     return;
   }
 
   if (pathname === '/api/status' && req.method === 'GET') {
+    syncActiveTelemetry();
     sendJson(res, 200, {
+      wearables: state.wearables,
       wearable: pickWearable(state.activeWearableId),
       tv: pickTv(state.activeTvId),
+      activeWearableId: state.activeWearableId,
       tvPaired: state.tvPaired,
       lastTelemetry: state.lastTelemetry,
       telemetryHistory: state.telemetryHistory,
@@ -373,14 +444,16 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/telemetry/history' && req.method === 'GET') {
+    const wearableId = url.searchParams.get('wearableId') || state.activeWearableId;
     sendJson(res, 200, {
-      wearableId: state.activeWearableId,
-      points: state.telemetryHistory,
+      wearableId,
+      points: getTelemetryHistoryForWearable(wearableId),
     });
     return;
   }
 
   if (pathname === '/api/tv-feed' && req.method === 'GET') {
+    syncActiveTelemetry();
     sendJson(res, 200, {
       currentTurn: getCurrentAppointment(),
       queue: getQueueAppointments(),
@@ -399,51 +472,74 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    state.lastTelemetry = {
-      wearableId,
-      heartRate: Number(body.heartRate) || state.lastTelemetry.heartRate,
-      spo2: Number(body.spo2) || state.lastTelemetry.spo2,
-      temperature: Number(body.temperature) || state.lastTelemetry.temperature,
-      battery: Number(body.battery) || state.lastTelemetry.battery,
-      steps: Number(body.steps) || state.lastTelemetry.steps,
-      stress: Number(body.stress) || state.lastTelemetry.stress,
-      respiratoryRate: Number(body.respiratoryRate) || state.lastTelemetry.respiratoryRate,
-      hrv: Number(body.hrv) || state.lastTelemetry.hrv,
-      signalQuality: Number(body.signalQuality) || state.lastTelemetry.signalQuality,
-      perfusionIndex: Number(body.perfusionIndex) || state.lastTelemetry.perfusionIndex,
-      sequence: Number(body.sequence) || (state.lastTelemetry.sequence + 1),
-      source: body.source || state.lastTelemetry.source,
-      timestamp: new Date().toISOString(),
-    };
+    const wearable = ensureWearable(wearableId, body.source);
+    const previousTelemetry = getTelemetryForWearable(wearableId);
+    const nextTelemetry = createTelemetrySnapshot(wearableId, previousTelemetry, body);
 
-    state.telemetryHistory.push(state.lastTelemetry);
-    if (state.telemetryHistory.length > 120) {
-      state.telemetryHistory.shift();
+    state.telemetryByWearable[wearableId] = nextTelemetry;
+    const history = getTelemetryHistoryForWearable(wearableId);
+    history.push(nextTelemetry);
+    if (history.length > 120) {
+      history.shift();
+    }
+    state.telemetryHistoryByWearable[wearableId] = history;
+
+    wearable.ritmoCardiaco = nextTelemetry.heartRate;
+    wearable.spo2 = nextTelemetry.spo2;
+    wearable.temperatura = nextTelemetry.temperature;
+    wearable.bateria = nextTelemetry.battery;
+    wearable.estado = 'Conectado';
+    wearable.steps = nextTelemetry.steps;
+    wearable.stress = nextTelemetry.stress;
+    wearable.respiratoryRate = nextTelemetry.respiratoryRate;
+    wearable.hrv = nextTelemetry.hrv;
+    wearable.signalQuality = nextTelemetry.signalQuality;
+
+    if (!state.activeWearableId || !state.wearables.some((item) => item.id === state.activeWearableId)) {
+      state.activeWearableId = wearableId;
+    }
+
+    if (state.activeWearableId === wearableId) {
+      syncActiveTelemetry();
+    }
+
+    sendJson(res, 200, { ok: true, telemetry: nextTelemetry, wearable });
+    return;
+  }
+
+  if (pathname === '/api/select-wearable' && req.method === 'POST') {
+    const body = await readBody(req);
+    const wearableId = String(body.wearableId || '').trim();
+    if (!wearableId) {
+      sendJson(res, 400, { error: 'wearableId is required' });
+      return;
     }
 
     const wearable = pickWearable(wearableId);
-    wearable.ritmoCardiaco = state.lastTelemetry.heartRate;
-    wearable.spo2 = state.lastTelemetry.spo2;
-    wearable.temperatura = state.lastTelemetry.temperature;
-    wearable.bateria = state.lastTelemetry.battery;
-    wearable.estado = 'Conectado';
-    wearable.steps = state.lastTelemetry.steps;
-    wearable.stress = state.lastTelemetry.stress;
-    wearable.respiratoryRate = state.lastTelemetry.respiratoryRate;
-    wearable.hrv = state.lastTelemetry.hrv;
-    wearable.signalQuality = state.lastTelemetry.signalQuality;
+    if (!wearable) {
+      sendJson(res, 404, { error: 'Wearable no encontrado' });
+      return;
+    }
 
-    sendJson(res, 200, { ok: true, telemetry: state.lastTelemetry });
+    state.activeWearableId = wearable.id;
+    syncActiveTelemetry();
+    sendJson(res, 200, {
+      ok: true,
+      wearable,
+      lastTelemetry: state.lastTelemetry,
+      message: `Wearable activo cambiado a ${wearable.nombre}`,
+    });
     return;
   }
 
   if (pathname === '/api/pair' && req.method === 'POST') {
     const body = await readBody(req);
-    const wearable = pickWearable(body.wearableId);
+    const wearable = ensureWearable(body.wearableId, body.source);
     const tv = pickTv(body.tvId);
     state.activeWearableId = wearable.id;
     state.activeTvId = tv.id;
     state.tvPaired = true;
+    syncActiveTelemetry();
     tv.estado = 'Emparejado';
     tv.appActiva = 'BioMedica TV Hub';
     sendJson(res, 200, {
@@ -655,6 +751,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   const staticCandidates = [
+    path.join(publicRootDir, pathname),
     path.join(distDir, pathname),
     path.join(publicBiomedicaDir, pathname.replace('/biomedica', '')),
     path.join(assetsDir, pathname.replace('/assets', '')),

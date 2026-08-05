@@ -118,6 +118,7 @@ export class App implements OnInit, OnDestroy {
   tvEmparejada = false;
   tvMensaje = 'LG webOS listo para emparejar la telemetría desde el wearable.';
   tvWallUrl = '/tv';
+  apkDownloadUrl = '/downloads/smartwatch_secure_auth_app.apk';
   lastTelemetry: TelemetrySnapshot = {
     wearableId: 'wear-01',
     heartRate: 72,
@@ -202,6 +203,7 @@ export class App implements OnInit, OnDestroy {
   async ngOnInit() {
     this.vistaActiva = this.rutaInicial();
     this.tvWallUrl = `${window.location.origin}/tv`;
+    this.apkDownloadUrl = `${window.location.origin}/downloads/smartwatch_secure_auth_app.apk`;
     this.sincronizarRuta();
     this.sliderInterval = setInterval(() => { this.heroSlide = (this.heroSlide + 1) % this.heroSlides.length; }, 5500);
     await this.cargarSesionAdmin();
@@ -357,14 +359,50 @@ export class App implements OnInit, OnDestroy {
     return payload as T;
   }
 
+  private fusionarWearables(wearables: Partial<WearableDevice>[]): void {
+    for (const incoming of wearables) {
+      if (!incoming.id) {
+        continue;
+      }
+
+      const index = this.wearables.findIndex((item) => item.id === incoming.id);
+      if (index >= 0) {
+        this.wearables[index] = { ...this.wearables[index], ...incoming };
+        continue;
+      }
+
+      this.wearables.unshift({
+        id: incoming.id,
+        nombre: incoming.nombre ?? `Wearable ${incoming.id.slice(-6).toUpperCase()}`,
+        modelo: incoming.modelo ?? 'Wearable remoto conectado',
+        estado: incoming.estado ?? 'Conectado',
+        bateria: incoming.bateria ?? 100,
+        ritmoCardiaco: incoming.ritmoCardiaco ?? 72,
+        spo2: incoming.spo2 ?? 98,
+        temperatura: incoming.temperatura ?? 36.6,
+        ubicacion: incoming.ubicacion ?? 'Sesion remota',
+      });
+    }
+  }
+
   private async cargarEstadoPuente(): Promise<void> {
     try {
       const data = await this.requestJson<{
+        wearables?: Partial<WearableDevice>[];
         wearable?: Partial<WearableDevice>;
         tv?: Partial<TvDevice>;
+        activeWearableId?: string;
         tvPaired?: boolean;
         lastTelemetry?: Partial<TelemetrySnapshot>;
       }>('/api/status');
+
+      if (data.wearables?.length) {
+        this.fusionarWearables(data.wearables);
+      }
+
+      if (data.activeWearableId) {
+        this.wearableSeleccionadoId = data.activeWearableId;
+      }
 
       const wearableId = data.wearable?.id;
       if (wearableId) {
@@ -500,6 +538,11 @@ export class App implements OnInit, OnDestroy {
   seleccionarWearable(id: string) {
     this.wearableSeleccionadoId = id;
     this.tvMensaje = `Wearable ${this.wearableSeleccionado.nombre} listo para enviar datos a LG webOS.`;
+    void fetch(this.api('/api/select-wearable'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wearableId: id }),
+    }).finally(() => void this.cargarEstadoPuente());
   }
 
   seleccionarTv(id: string) {
