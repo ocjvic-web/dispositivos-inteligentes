@@ -287,10 +287,22 @@
       </div>
       <div class="flutter-panel">
         <div class="flutter-badge"><span>🐦</span><strong>Integración Flutter Biomédica</strong><span class="flutter-tag">StatsWidget.dart</span></div>
-        <p class="flutter-desc">Panel clínico Flutter embebido con telemetría en tiempo real.</p>
-        <div class="flutter-iframe-placeholder">
-          <iframe src="assets/flutter-dashboard/index.html" title="Flutter Task Dashboard" class="flutter-iframe"></iframe>
+        <p class="flutter-desc">Panel clínico Flutter conectado a la microapp publicada. Puedes abrirlo aparte o refrescar su vista embebida.</p>
+        <div class="wearable-actions">
+          <button class="btn-primary" (click)="abrirFlutterDashboard()">Abrir microapp Flutter</button>
+          <button class="btn-secondary" (click)="recargarFlutterDashboard()">Recargar panel</button>
         </div>
+        <p class="subtitle">Estado: {{ flutterDashboardDisponible ? 'Microapp disponible y embebida' : 'Microapp en comprobación o no disponible' }}</p>
+        @if (flutterDashboardDisponible) {
+          <div class="flutter-iframe-placeholder">
+            <iframe [src]="flutterDashboardUrl" title="Flutter Task Dashboard" class="flutter-iframe"></iframe>
+          </div>
+        } @else {
+          <div class="empty-state">
+            <span>🐦</span>
+            <p>La microapp Flutter no respondió en este momento. Usa “Abrir microapp Flutter” para verla directamente.</p>
+          </div>
+        }
       </div>
     </div>
     <div class="filter-tabs">
@@ -419,10 +431,22 @@
     </div>
     <div class="flutter-panel">
       <div class="flutter-badge"><span>🐦</span><strong>Flutter Wearable Biomédico</strong><span class="flutter-tag">WearableCardWidget.dart</span></div>
-      <p class="flutter-desc">Catálogo interactivo de dispositivos de monitoreo clínico con búsqueda en tiempo real y estadísticas operativas.</p>
-      <div class="flutter-iframe-placeholder-large">
-        <iframe src="assets/flutter-wearable/index.html" title="Flutter Wearable Catalog" class="flutter-iframe"></iframe>
+      <p class="flutter-desc">Catálogo Flutter publicado como microapp independiente. Puedes abrirlo aparte o recargar el embebido cuando conectes nuevos relojes.</p>
+      <div class="wearable-actions">
+        <button class="btn-primary" (click)="abrirFlutterWearable()">Abrir catálogo Flutter</button>
+        <button class="btn-secondary" (click)="recargarFlutterWearable()">Recargar catálogo</button>
       </div>
+      <p class="subtitle">Estado: {{ flutterWearableDisponible ? 'Catálogo Flutter disponible' : 'Catálogo en comprobación o no disponible' }}</p>
+      @if (flutterWearableDisponible) {
+        <div class="flutter-iframe-placeholder-large">
+          <iframe [src]="flutterWearableUrl" title="Flutter Wearable Catalog" class="flutter-iframe"></iframe>
+        </div>
+      } @else {
+        <div class="empty-state">
+          <span>⌚</span>
+          <p>El catálogo Flutter no respondió en este momento. Usa “Abrir catálogo Flutter” para abrirlo directamente.</p>
+        </div>
+      }
     </div>
   </div>
 }
@@ -803,11 +827,11 @@
         <div class="social-card">
           <h3>Síguenos</h3>
           <div class="social-icons">
-            <a href="#" class="social-btn facebook" aria-label="Facebook">f</a>
-            <a href="#" class="social-btn twitter" aria-label="Twitter">𝕏</a>
-            <a href="#" class="social-btn instagram" aria-label="Instagram">📸</a>
-            <a href="#" class="social-btn linkedin" aria-label="LinkedIn">in</a>
-            <a href="#" class="social-btn github" aria-label="GitHub">⌥</a>
+            <a href="https://www.facebook.com/" target="_blank" rel="noopener" class="social-btn facebook" aria-label="Facebook">f</a>
+            <a href="https://x.com/" target="_blank" rel="noopener" class="social-btn twitter" aria-label="Twitter">𝕏</a>
+            <a href="https://www.instagram.com/" target="_blank" rel="noopener" class="social-btn instagram" aria-label="Instagram">📸</a>
+            <a href="https://www.linkedin.com/" target="_blank" rel="noopener" class="social-btn linkedin" aria-label="LinkedIn">in</a>
+            <a href="https://github.com/ocjvic-web/dispositivos-inteligentes" target="_blank" rel="noopener" class="social-btn github" aria-label="GitHub">⌥</a>
           </div>
         </div>
       </div>
@@ -821,12 +845,12 @@
   <div class="footer-social-bar">
     <span class="footer-social-text">Conecta con nosotros en redes sociales:</span>
     <div class="footer-social-links">
-      <a href="#" aria-label="Facebook" class="fsoc-link">f</a>
-      <a href="#" aria-label="Twitter" class="fsoc-link">𝕏</a>
-      <a href="#" aria-label="Google" class="fsoc-link">G</a>
-      <a href="#" aria-label="Instagram" class="fsoc-link">📸</a>
-      <a href="#" aria-label="LinkedIn" class="fsoc-link">in</a>
-      <a href="#" aria-label="GitHub" class="fsoc-link">⌥</a>
+      <a href="https://www.facebook.com/" target="_blank" rel="noopener" aria-label="Facebook" class="fsoc-link">f</a>
+      <a href="https://x.com/" target="_blank" rel="noopener" aria-label="Twitter" class="fsoc-link">𝕏</a>
+      <a href="https://www.google.com/" target="_blank" rel="noopener" aria-label="Google" class="fsoc-link">G</a>
+      <a href="https://www.instagram.com/" target="_blank" rel="noopener" aria-label="Instagram" class="fsoc-link">📸</a>
+      <a href="https://www.linkedin.com/" target="_blank" rel="noopener" aria-label="LinkedIn" class="fsoc-link">in</a>
+      <a href="https://github.com/ocjvic-web/dispositivos-inteligentes" target="_blank" rel="noopener" aria-label="GitHub" class="fsoc-link">⌥</a>
     </div>
   </div>
 
@@ -849,10 +873,10 @@
     </div>
     <div class="footer-col">
       <h6>Recursos</h6>
-      <a href="#">Documentación</a>
-      <a href="#">Guías Clínicas</a>
-      <a href="#">Normativas</a>
-      <a href="#">API Reference</a>
+      <a href="/resources/documentacion.html" target="_blank" rel="noopener">Documentación</a>
+      <a href="/resources/guias-clinicas.html" target="_blank" rel="noopener">Guías Clínicas</a>
+      <a href="/resources/normativas.html" target="_blank" rel="noopener">Normativas</a>
+      <a href="/resources/api-reference.html" target="_blank" rel="noopener">API Reference</a>
     </div>
     <div class="footer-col">
       <h6>Contacto</h6>

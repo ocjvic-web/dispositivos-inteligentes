@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>API Reference</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 0; background: #eef3fb; color: #102249; }
+    main { max-width: 900px; margin: 40px auto; background: #fff; border-radius: 20px; padding: 32px; box-shadow: 0 12px 28px rgba(16,34,73,.08); }
+    code { background: #f2f6ff; padding: 2px 6px; border-radius: 6px; }
+    a { color: #1858c8; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>API Reference</h1>
+    <p>Endpoints principales publicados por la demo:</p>
+    <ul>
+      <li><code>GET /api/status</code> · estado actual del wearable activo</li>
+      <li><code>GET /api/devices</code> · inventario de wearables y TVs</li>
+      <li><code>GET /api/tv-feed</code> · feed para la pantalla Smart TV</li>
+      <li><code>POST /api/telemetry</code> · envío de telemetría desde smartwatch</li>
+      <li><code>POST /api/select-wearable</code> · cambia el wearable activo</li>
+    </ul>
+    <p>Prueba rápida:</p>
+    <p><a href="https://biomedica-smarttv.onrender.com/api/status" target="_blank" rel="noopener">https://biomedica-smarttv.onrender.com/api/status</a></p>
+  </main>
+</body>
+</html>
