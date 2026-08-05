@@ -102,21 +102,32 @@ function validatePasswordStrength(password) {
     && /[^A-Za-z0-9]/.test(password);
 }
 
-function inferWearableName(wearableId) {
-  return `Wear OS ${String(wearableId).slice(-6).toUpperCase()}`;
+function inferWearableName(wearableId, wearableFormFactor = 'desconocido') {
+  const suffix = String(wearableId).slice(-6).toUpperCase();
+  if (wearableFormFactor === 'square') {
+    return `Wear OS Square ${suffix}`;
+  }
+  if (wearableFormFactor === 'round') {
+    return `Wear OS Round ${suffix}`;
+  }
+  return `Wear OS ${suffix}`;
 }
 
-function createWearableRecord(wearableId, source = 'wear-os-remote') {
+function createWearableRecord(wearableId, source = 'wear-os-remote', wearableFormFactor = 'desconocido') {
   return {
     id: wearableId,
-    nombre: inferWearableName(wearableId),
-    modelo: source === 'wear-os-emulator' ? 'Emulador Wear OS remoto' : 'Wearable remoto conectado',
+    nombre: inferWearableName(wearableId, wearableFormFactor),
+    modelo: wearableFormFactor === 'square'
+      ? 'Emulador Wear OS cuadrado'
+      : wearableFormFactor === 'round'
+        ? 'Emulador Wear OS redondo'
+        : (source === 'wear-os-emulator' ? 'Emulador Wear OS remoto' : 'Wearable remoto conectado'),
     estado: 'Conectado',
     bateria: 100,
     ritmoCardiaco: 72,
     spo2: 98,
     temperatura: 36.6,
-    ubicacion: 'Sesion remota del profesor',
+    ubicacion: wearableFormFactor === 'square' ? 'Sesion remota · reloj cuadrado' : wearableFormFactor === 'round' ? 'Sesion remota · reloj redondo' : 'Sesion remota del profesor',
   };
 }
 
@@ -140,58 +151,24 @@ function createTelemetrySnapshot(wearableId, previousTelemetry, body = {}) {
 }
 
 const initialTelemetry = {
-  wearableId: 'wear-01',
-  heartRate: 72,
-  spo2: 98,
-  temperature: 36.6,
-  battery: 84,
-  steps: 8430,
-  stress: 22,
-  respiratoryRate: 14,
-  hrv: 64,
-  signalQuality: 96,
-  perfusionIndex: 5.2,
+  wearableId: '',
+  heartRate: 0,
+  spo2: 0,
+  temperature: 0,
+  battery: 0,
+  steps: 0,
+  stress: 0,
+  respiratoryRate: 0,
+  hrv: 0,
+  signalQuality: 0,
+  perfusionIndex: 0,
   sequence: 0,
-  source: 'bridge-seed',
+  source: 'cloud-idle',
   timestamp: nowIso(),
 };
 
 const state = {
-  wearables: [
-    {
-      id: 'wear-01',
-      nombre: 'Wear OS XL Round',
-      modelo: 'Emulador biomédico',
-      estado: 'Conectado',
-      bateria: 84,
-      ritmoCardiaco: 72,
-      spo2: 98,
-      temperatura: 36.6,
-      ubicacion: 'Pulsera clínica principal',
-    },
-    {
-      id: 'wear-02',
-      nombre: 'CardioBand Pro',
-      modelo: 'Smartband ECG',
-      estado: 'En espera',
-      bateria: 66,
-      ritmoCardiaco: 79,
-      spo2: 97,
-      temperatura: 36.4,
-      ubicacion: 'Paciente en reposo',
-    },
-    {
-      id: 'wear-03',
-      nombre: 'Vital Watch Lite',
-      modelo: 'Reloj biométrico',
-      estado: 'Sincronizando',
-      bateria: 58,
-      ritmoCardiaco: 68,
-      spo2: 99,
-      temperatura: 36.2,
-      ubicacion: 'Sala de observación',
-    },
-  ],
+  wearables: [],
   tvs: [
     {
       id: 'tv-lg-01',
@@ -212,17 +189,13 @@ const state = {
       appActiva: 'Dashboard de signos vitales',
     },
   ],
-  activeWearableId: 'wear-01',
+  activeWearableId: '',
   activeTvId: 'tv-lg-01',
   tvPaired: false,
   lastTelemetry: { ...initialTelemetry },
-  telemetryHistory: [{ ...initialTelemetry }],
-  telemetryByWearable: {
-    'wear-01': { ...initialTelemetry },
-  },
-  telemetryHistoryByWearable: {
-    'wear-01': [{ ...initialTelemetry }],
-  },
+  telemetryHistory: [],
+  telemetryByWearable: {},
+  telemetryHistoryByWearable: {},
   adminUsers: [
     {
       id: 'admin-001',
@@ -342,13 +315,13 @@ function serveFile(res, filePath) {
 }
 
 function pickWearable(id) {
-  return state.wearables.find((item) => item.id === id) || state.wearables[0];
+  return state.wearables.find((item) => item.id === id) || null;
 }
 
-function ensureWearable(wearableId, source) {
+function ensureWearable(wearableId, source, wearableFormFactor) {
   let wearable = state.wearables.find((item) => item.id === wearableId);
   if (!wearable) {
-    wearable = createWearableRecord(wearableId, source);
+    wearable = createWearableRecord(wearableId, source, wearableFormFactor);
     state.wearables.unshift(wearable);
   }
   return wearable;
@@ -363,6 +336,11 @@ function getTelemetryHistoryForWearable(wearableId) {
 }
 
 function syncActiveTelemetry() {
+  if (!state.activeWearableId) {
+    state.lastTelemetry = { ...initialTelemetry };
+    state.telemetryHistory = [];
+    return;
+  }
   state.lastTelemetry = { ...getTelemetryForWearable(state.activeWearableId) };
   state.telemetryHistory = [...getTelemetryHistoryForWearable(state.activeWearableId)];
 }
@@ -472,9 +450,24 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
-    const wearable = ensureWearable(wearableId, body.source);
+    const wearableFormFactor = body.wearableFormFactor === 'round' || body.wearableFormFactor === 'square'
+      ? body.wearableFormFactor
+      : 'desconocido';
+    const wearable = ensureWearable(wearableId, body.source, wearableFormFactor);
     const previousTelemetry = getTelemetryForWearable(wearableId);
     const nextTelemetry = createTelemetrySnapshot(wearableId, previousTelemetry, body);
+
+    wearable.nombre = inferWearableName(wearableId, wearableFormFactor);
+    wearable.modelo = wearableFormFactor === 'square'
+      ? 'Emulador Wear OS cuadrado'
+      : wearableFormFactor === 'round'
+        ? 'Emulador Wear OS redondo'
+        : wearable.modelo;
+    wearable.ubicacion = wearableFormFactor === 'square'
+      ? 'Sesion remota · reloj cuadrado'
+      : wearableFormFactor === 'round'
+        ? 'Sesion remota · reloj redondo'
+        : wearable.ubicacion;
 
     state.telemetryByWearable[wearableId] = nextTelemetry;
     const history = getTelemetryHistoryForWearable(wearableId);
@@ -534,7 +527,7 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === '/api/pair' && req.method === 'POST') {
     const body = await readBody(req);
-    const wearable = ensureWearable(body.wearableId, body.source);
+    const wearable = ensureWearable(body.wearableId, body.source, body.wearableFormFactor);
     const tv = pickTv(body.tvId);
     state.activeWearableId = wearable.id;
     state.activeTvId = tv.id;

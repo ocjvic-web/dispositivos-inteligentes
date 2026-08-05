@@ -89,6 +89,18 @@ interface TurnoAtencion {
   updatedAt: string;
 }
 
+const wearablePlaceholder: WearableDevice = {
+  id: 'sin-wearable',
+  nombre: 'Sin wearable conectado',
+  modelo: 'Esperando primer smartwatch remoto',
+  estado: 'En espera',
+  bateria: 0,
+  ritmoCardiaco: 0,
+  spo2: 0,
+  temperatura: 0,
+  ubicacion: 'Conecta un reloj desde Render para verlo aquí',
+};
+
 @Component({
   selector: 'app-root',
   standalone: true,
@@ -112,27 +124,27 @@ export class App implements OnInit, OnDestroy {
   vistaActiva: VistaActiva = 'inicio';
   menuAbierto = false;
   puenteActivo = false;
-  puenteMensaje = 'Puente local desconectado. Inicia el servidor para ver datos en vivo.';
-  wearableSeleccionadoId = 'wear-01';
+  puenteMensaje = 'Esperando telemetría remota desde Render.';
+  wearableSeleccionadoId = '';
   tvSeleccionadaId = 'tv-lg-01';
   tvEmparejada = false;
-  tvMensaje = 'LG webOS listo para emparejar la telemetría desde el wearable.';
+  tvMensaje = 'LG webOS listo para mostrar el wearable remoto que selecciones.';
   tvWallUrl = '/tv';
   apkDownloadUrl = '/downloads/smartwatch_secure_auth_app.apk';
   lastTelemetry: TelemetrySnapshot = {
-    wearableId: 'wear-01',
-    heartRate: 72,
-    spo2: 98,
-    temperature: 36.6,
-    battery: 84,
-    steps: 8430,
-    stress: 22,
-    respiratoryRate: 14,
-    hrv: 64,
-    signalQuality: 96,
-    perfusionIndex: 5.2,
+    wearableId: '',
+    heartRate: 0,
+    spo2: 0,
+    temperature: 0,
+    battery: 0,
+    steps: 0,
+    stress: 0,
+    respiratoryRate: 0,
+    hrv: 0,
+    signalQuality: 0,
+    perfusionIndex: 0,
     sequence: 0,
-    source: 'bridge-seed',
+    source: 'cloud-idle',
   };
 
   private bridgeInterval: ReturnType<typeof setInterval> | null = null;
@@ -248,41 +260,7 @@ export class App implements OnInit, OnDestroy {
     { titulo: 'IA de Apoyo', subtitulo: 'Predicción y alertas tempranas', img: '/biomedica/product-icu.jpg' },
   ];
 
-  wearables = [
-    {
-      id: 'wear-01',
-      nombre: 'Wear OS XL Round',
-      modelo: 'Emulador biomédico',
-      estado: 'Conectado',
-      bateria: 84,
-      ritmoCardiaco: 72,
-      spo2: 98,
-      temperatura: 36.6,
-      ubicacion: 'Pulsera clínica principal',
-    },
-    {
-      id: 'wear-02',
-      nombre: 'CardioBand Pro',
-      modelo: 'Smartband ECG',
-      estado: 'En espera',
-      bateria: 66,
-      ritmoCardiaco: 79,
-      spo2: 97,
-      temperatura: 36.4,
-      ubicacion: 'Paciente en reposo',
-    },
-    {
-      id: 'wear-03',
-      nombre: 'Vital Watch Lite',
-      modelo: 'Reloj biométrico',
-      estado: 'Sincronizando',
-      bateria: 58,
-      ritmoCardiaco: 68,
-      spo2: 99,
-      temperatura: 36.2,
-      ubicacion: 'Sala de observación',
-    },
-  ] satisfies WearableDevice[];
+  wearables: WearableDevice[] = [];
 
   tvs = [
     {
@@ -425,14 +403,16 @@ export class App implements OnInit, OnDestroy {
       }
 
       this.tvEmparejada = Boolean(data.tvPaired);
-      this.puenteActivo = true;
-      this.puenteMensaje = `Puente activo · wearable ${data.wearable?.nombre ?? 'N/A'} · TV ${data.tv?.nombre ?? 'N/A'} · seq ${this.lastTelemetry.sequence ?? 0}`;
+      this.puenteActivo = Boolean(data.wearable?.id);
+      this.puenteMensaje = data.wearable?.id
+        ? `Conectado a nube · wearable ${data.wearable.nombre ?? 'N/A'} · TV ${data.tv?.nombre ?? 'N/A'} · seq ${this.lastTelemetry.sequence ?? 0}`
+        : 'Sin wearables remotos activos todavía. Abre la app del smartwatch para registrar uno.';
       this.tvMensaje = this.tvEmparejada
         ? `Conexión real activa: ${data.wearable?.nombre ?? 'Wearable'} → ${data.tv?.nombre ?? 'LG webOS'}.`
-        : 'Puente listo. Selecciona wearable y TV para emparejar.';
+        : 'Selecciona un wearable remoto y una TV para emparejar.';
     } catch {
       this.puenteActivo = false;
-      this.puenteMensaje = 'Puente local no disponible. Ejecuta node server.js en pagina-web.';
+      this.puenteMensaje = 'La nube no está respondiendo temporalmente. Recarga o revisa Render.';
     }
   }
 
@@ -505,7 +485,7 @@ export class App implements OnInit, OnDestroy {
   porcentaje(n: number) { return Math.round((n / this.totalDispositivos) * 100); }
 
   get wearableSeleccionado(): WearableDevice {
-    return this.wearables.find((w) => w.id === this.wearableSeleccionadoId) ?? this.wearables[0];
+    return this.wearables.find((w) => w.id === this.wearableSeleccionadoId) ?? this.wearables[0] ?? wearablePlaceholder;
   }
 
   get tvSeleccionada(): TvDevice {
