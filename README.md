@@ -1,59 +1,103 @@
-# PaginaWeb
+# BioMedica Web + Smart TV
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 20.3.16.
+Aplicación Angular con bridge Node.js para:
 
-## Development server
+- monitoreo clínico web
+- pantalla Smart TV con turnos de atención y telemetría
+- panel administrativo con autenticación y gestión de usuarios
+- integración con smartwatch Flutter/Wear OS
 
-To start a local development server, run:
+## Ejecutar en local
 
-```bash
-ng serve
-```
-
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+Frontend Angular:
 
 ```bash
-ng generate component component-name
+npm install
+npm start
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+Bridge Node con APIs y build estático:
 
 ```bash
-ng generate --help
+npm install
+npm run build
+npm run serve:prod
 ```
 
-## Building
+La web queda en:
 
-To build the project run:
+- `http://localhost:4200` en desarrollo Angular
+- `http://localhost:4300` cuando sirves el build desde Node
+
+## Accesos y rutas importantes
+
+- Web principal: `/`
+- Vista wearables: `/wearable`
+- Vista LG webOS: `/webos`
+- Pantalla Smart TV: `/tv`
+- Panel admin: `/admin`
+
+Credenciales demo admin por defecto:
+
+- usuario: `admin`
+- contraseña: `AdminBio2026!`
+
+En producción cambia esas credenciales con variables de entorno.
+
+## Seguridad incluida
+
+- autenticación admin con token firmado y expiración de sesión
+- creación y bloqueo de usuarios administrativos
+- validación mínima de contraseñas fuertes
+- cabeceras HTTP de seguridad: CSP, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`
+
+Nota: esto es una base académica/demostrativa. Para un sistema real con datos de salud faltaría persistencia segura, hashing con sal y algoritmo resistente como bcrypt/argon2, auditoría, rate limiting y HTTPS estricto extremo a extremo.
+
+## Despliegue gratuito recomendado
+
+La opción gratuita más práctica para este proyecto es Render porque sirve bien una app Node con Angular compilado y te da subdominio público `onrender.com`.
+
+Archivo incluido para despliegue: `render.yaml`
+
+Variables de entorno recomendadas en Render:
+
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD`
+- `SESSION_SECRET`
+- `PORT` (Render la inyecta normalmente)
+
+Pasos:
 
 ```bash
-ng build
+git add .
+git commit -m "Preparar despliegue BioMedica"
+git push
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+Luego en Render:
 
-## Running unit tests
+1. Conecta tu repositorio.
+2. Crea un `Web Service`.
+3. Usa el `render.yaml` del proyecto o configura:
+	- Build Command: `npm install && npm run build`
+	- Start Command: `npm run serve:prod`
+4. Define `ADMIN_PASSWORD` y `SESSION_SECRET` con valores propios.
+5. Al desplegar tendrás una URL pública como `https://tu-app.onrender.com`.
 
-To execute unit tests with the [Karma](https://karma-runner.github.io) test runner, use the following command:
+## Smartwatch Flutter hacia dominio público
+
+El bridge del reloj ahora acepta URL por `dart-define`.
+
+Ejemplo para emulador o smartwatch:
 
 ```bash
-ng test
+flutter run --dart-define=TELEMETRY_BASE_URL=https://tu-app.onrender.com
 ```
 
-## Running end-to-end tests
+En Android Emulator local sigue funcionando el valor por defecto `http://10.0.2.2:4300`.
 
-For end-to-end (e2e) testing, run:
+## Validación realizada
 
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+- `npm run build` correcto
+- `node --check server.js` correcto
+- login admin y feed `/api/tv-feed` verificados localmente
