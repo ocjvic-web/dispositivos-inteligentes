@@ -296,20 +296,25 @@ function readBody(req) {
 function serveFile(res, filePath) {
   const ext = path.extname(filePath).toLowerCase();
   const type = mimeTypes[ext] || 'application/octet-stream';
+  // Flutter microapps necesitan poder embeberse como iframe en la misma origin
+  const isFlutterAsset = filePath.includes('flutter-dashboard') || filePath.includes('flutter-wearable');
   fs.readFile(filePath, (err, data) => {
     if (err) {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Not found');
       return;
     }
-    res.writeHead(200, {
+    const headers = {
       'Content-Type': type,
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'strict-origin-when-cross-origin',
-      'X-Frame-Options': 'SAMEORIGIN',
       'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
-      'Content-Security-Policy': "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com https://www.gstatic.com data: blob:; img-src 'self' data: https:; frame-src 'self' https://www.google.com; connect-src 'self' http: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; font-src 'self' data: https:"
-    });
+      'Content-Security-Policy': "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com https://www.gstatic.com data: blob:; img-src 'self' data: https:; frame-src 'self' https://www.google.com; connect-src 'self' http: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; font-src 'self' data: https:; worker-src 'self' blob:",
+    };
+    if (!isFlutterAsset) {
+      headers['X-Frame-Options'] = 'SAMEORIGIN';
+    }
+    res.writeHead(200, headers);
     res.end(data);
   });
 }
