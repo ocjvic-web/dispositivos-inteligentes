@@ -113,6 +113,39 @@ a {
   box-shadow: 0 8px 16px rgba(42, 115, 236, 0.32);
 }
 
+/* ── Buscador Fuse.js ─────────────────────────────────────────────────── */
+.fuse-search-wrap { position: relative; display: flex; align-items: center; margin-left: 8px; }
+.fuse-search-btn {
+  background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25);
+  color: #fff; border-radius: 8px; padding: 7px 12px; font-size: 16px;
+  cursor: pointer; transition: background .2s;
+}
+.fuse-search-btn:hover { background: rgba(255,255,255,0.22); }
+.fuse-overlay {
+  position: fixed; inset: 0; z-index: 900;
+  background: rgba(0,0,0,0.35); backdrop-filter: blur(2px);
+}
+.fuse-panel {
+  position: absolute; top: calc(100% + 10px); right: 0;
+  width: 380px; background: #fff; border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.22); z-index: 901; overflow: hidden;
+}
+.fuse-input {
+  width: 100%; padding: 14px 16px; font-size: 15px;
+  border: none; border-bottom: 1px solid #e8eaf6; outline: none;
+  background: #f5f7ff;
+}
+.fuse-results { list-style: none; margin: 0; padding: 6px 0; max-height: 340px; overflow-y: auto; }
+.fuse-result-item {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 10px 16px; cursor: pointer; transition: background .15s;
+}
+.fuse-result-item:hover { background: #f0f4ff; }
+.fuse-result-icon { font-size: 22px; flex-shrink: 0; margin-top: 2px; }
+.fuse-result-item strong { display: block; font-size: 13.5px; color: #1a1a2e; }
+.fuse-result-item p { margin: 2px 0 0; font-size: 12px; color: #666; line-height: 1.4; }
+.fuse-empty { padding: 16px; text-align: center; color: #999; font-size: 13px; }
+
 .hamburger {
   display: none;
   border: 0;

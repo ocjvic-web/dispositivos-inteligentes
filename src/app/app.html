@@ -29,6 +29,33 @@
     <a href="#" (click)="navegar('estadisticas');$event.preventDefault()" [class.active]="vistaActiva==='estadisticas'">📊 Estadísticas</a>
     <a href="#" (click)="navegar('contacto');$event.preventDefault()" [class.active]="vistaActiva==='contacto'">✉ Contacto</a>
   </nav>
+  <!-- Buscador Fuse.js -->
+  <div class="fuse-search-wrap">
+    <button class="fuse-search-btn" (click)="abrirBusqueda()" aria-label="Buscar">🔍</button>
+    @if (busquedaAbierta) {
+      <div class="fuse-overlay" (click)="cerrarBusqueda()"></div>
+      <div class="fuse-panel">
+        <input id="fuse-input" class="fuse-input" type="search" placeholder="Buscar en la plataforma…"
+          [(ngModel)]="busquedaQuery" (ngModelChange)="buscar()" (keydown.escape)="cerrarBusqueda()" />
+        @if (busquedaResultados.length > 0) {
+          <ul class="fuse-results">
+            @for (r of busquedaResultados; track r.titulo) {
+              <li class="fuse-result-item" (click)="irAResultado(r)">
+                <span class="fuse-result-icon">{{ r.icon }}</span>
+                <div>
+                  <strong>{{ r.titulo }}</strong>
+                  <p>{{ r.descripcion }}</p>
+                </div>
+              </li>
+            }
+          </ul>
+        } @else if (busquedaQuery.length >= 2) {
+          <p class="fuse-empty">Sin resultados para "{{ busquedaQuery }}"</p>
+        }
+      </div>
+    }
+  </div>
+
   <button class="hamburger" (click)="toggleMenu()" [class.open]="menuAbierto" aria-label="Menú">
     <span></span><span></span><span></span>
   </button>

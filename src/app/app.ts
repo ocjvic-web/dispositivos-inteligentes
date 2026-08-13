@@ -2,6 +2,7 @@
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { environment } from '../environments/environment';
+import Fuse from 'fuse.js';
 
 export type EstadoTarea = 'pendiente' | 'en_progreso' | 'completada' | 'cancelada';
 export type Prioridad = 'alta' | 'media' | 'baja';
@@ -176,6 +177,58 @@ export class App implements OnInit, OnDestroy {
   };
 
   toggleMenu() { this.menuAbierto = !this.menuAbierto; }
+
+  // ── Buscador Fuse.js ────────────────────────────────────────────────────
+  busquedaQuery = '';
+  busquedaAbierta = false;
+  busquedaResultados: { titulo: string; descripcion: string; vista: VistaActiva; icon: string }[] = [];
+
+  private readonly _catalogoBusqueda: { titulo: string; descripcion: string; vista: VistaActiva; icon: string }[] = [
+    { titulo: 'Monitor Multiparámetro UCI', descripcion: 'ECG, SpO2, presión arterial y temperatura del paciente en tiempo real.', vista: 'inicio', icon: '🫀' },
+    { titulo: 'Analizador Hematológico', descripcion: 'Biomarcadores y paneles clínicos de laboratorio automatizados.', vista: 'inicio', icon: '🧬' },
+    { titulo: 'Telemetría Biomédica', descripcion: 'Centraliza señales de dispositivos médicos y genera alertas clínicas.', vista: 'inicio', icon: '📡' },
+    { titulo: 'Wearables Clínicos', descripcion: 'Smartwatches y sensores conectados con telemetría en tiempo real.', vista: 'wearable', icon: '⌚' },
+    { titulo: 'Dashboard Clínico', descripcion: 'Panel de tareas y estadísticas para gestión del flujo hospitalario.', vista: 'dashboard', icon: '📋' },
+    { titulo: 'LG webOS Smart TV', descripcion: 'Vinculación de pantalla Smart TV para mostrar el estado del wearable.', vista: 'webos', icon: '📺' },
+    { titulo: 'Pantalla Smart TV Wall', descripcion: 'Vista de televisión en sala con datos de telemetría en vivo.', vista: 'tvwall', icon: '🖥️' },
+    { titulo: 'Administración de Usuarios', descripcion: 'Panel de control con roles: superadmin, operador y visor.', vista: 'admin', icon: '🔐' },
+    { titulo: 'Estadísticas de la Plataforma', descripcion: 'Métricas de wearables, sesiones, telemetría y actividad clínica.', vista: 'estadisticas', icon: '📊' },
+    { titulo: 'Contacto y Soporte', descripcion: 'Formulario de contacto y datos de soporte técnico biomédico.', vista: 'contacto', icon: '✉️' },
+    { titulo: 'Autenticación PIN Smartwatch', descripcion: 'Login seguro con PIN o biometría en la app del smartwatch.', vista: 'wearable', icon: '🔑' },
+    { titulo: 'Ritmo Cardíaco SpO2', descripcion: 'Monitoreo de frecuencia cardíaca y saturación de oxígeno en sangre.', vista: 'wearable', icon: '❤️' },
+    { titulo: 'Sesión y Seguridad', descripcion: 'Token de sesión con expiración automática a los 15 minutos.', vista: 'admin', icon: '🛡️' },
+  ];
+
+  private _fuse = new Fuse(this._catalogoBusqueda, {
+    keys: ['titulo', 'descripcion'],
+    threshold: 0.4,
+    includeScore: true,
+  });
+
+  buscar(): void {
+    const q = this.busquedaQuery.trim();
+    this.busquedaResultados = q.length < 2
+      ? []
+      : this._fuse.search(q).slice(0, 6).map(r => r.item);
+  }
+
+  irAResultado(item: { vista: VistaActiva }): void {
+    this.navegar(item.vista);
+    this.busquedaQuery = '';
+    this.busquedaResultados = [];
+    this.busquedaAbierta = false;
+  }
+
+  abrirBusqueda(): void {
+    this.busquedaAbierta = true;
+    setTimeout(() => (document.getElementById('fuse-input') as HTMLInputElement)?.focus(), 50);
+  }
+
+  cerrarBusqueda(): void {
+    this.busquedaAbierta = false;
+    this.busquedaQuery = '';
+    this.busquedaResultados = [];
+  }
 
   private svgData(title: string, subtitle: string, leftColor: string, rightColor: string): string {
     const svg = `
