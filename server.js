@@ -509,6 +509,44 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/api/core/chat/notifications' && req.method === 'POST') {
+    const authorization = req.headers.authorization || '';
+    if (!/^Bearer\s+\S+$/.test(authorization)) {
+      unauthorized(res, 'Inicia sesión para notificar mensajes.');
+      return;
+    }
+    if (!coreApiUrl) {
+      sendJson(res, 503, { message: 'La API de notificaciones no está configurada.' });
+      return;
+    }
+    try {
+      const payload = await readBody(req);
+      const upstream = await fetch(
+        `${coreApiUrl.replace(/\/+$/, '')}/api/chat/notifications`,
+        {
+          method: 'POST',
+          headers: {
+            authorization,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(10000),
+        },
+      );
+      const body = await upstream.arrayBuffer();
+      res.writeHead(upstream.status, {
+        'Content-Type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      res.end(Buffer.from(body));
+    } catch (error) {
+      console.error('Chat notification proxy request failed:', error.message);
+      sendJson(res, 502, { message: 'No se pudo conectar con el servicio de notificaciones.' });
+    }
+    return;
+  }
+
   if (pathname.startsWith('/api/admin/')) {
     sendJson(res, 410, {
       error: 'La administración local fue retirada. Usa el portal autenticado con Supabase.',

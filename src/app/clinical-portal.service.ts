@@ -428,14 +428,27 @@ export class ClinicalPortalService {
       throw new Error('El mensaje debe tener entre 1 y 4000 caracteres.');
     }
     const senderUid = await this.authenticatedUserId();
-    const { error } = await this.supabase.from('clinical_messages').insert({
-      conversation_id: conversationId,
-      sender_uid: senderUid,
-      message_type: type,
-      body: normalizedBody,
-      attachment_path: attachmentPath,
-    });
+    const { data, error } = await this.supabase
+      .from('clinical_messages')
+      .insert({
+        conversation_id: conversationId,
+        sender_uid: senderUid,
+        message_type: type,
+        body: normalizedBody,
+        attachment_path: attachmentPath,
+      })
+      .select('id')
+      .single();
     if (error) throw new Error(error.message);
+    if (typeof data?.id !== 'string' || !data.id) {
+      console.error('El mensaje se guardó, pero Supabase no devolvió su identificador.');
+      return;
+    }
+    try {
+      await this.sendChatNotification(data.id);
+    } catch (notificationError) {
+      console.error('El mensaje se guardó, pero no se pudo enviar el aviso push.', notificationError);
+    }
   }
 
   async uploadImage(conversationId: string, file: File): Promise<string> {
@@ -732,5 +745,23 @@ export class ClinicalPortalService {
     if (error) throw new Error(error.message);
     if (!user) throw new Error('Inicia sesión para continuar.');
     return user.id;
+  }
+
+  private async sendChatNotification(messageId: string): Promise<void> {
+    const { data: { session }, error } = await this.supabase.auth.getSession();
+    if (error) throw new Error(error.message);
+    if (!session) throw new Error('Inicia sesión para enviar una notificación de chat.');
+
+    const response = await this.fetcher('/api/core/chat/notifications', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ messageId }),
+    });
+    if (!response.ok) {
+      throw new Error(`La API de notificaciones respondió HTTP ${response.status}.`);
+    }
   }
 }
