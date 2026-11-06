@@ -82,9 +82,13 @@ a {
 }
 
 .desktop-nav {
+  min-width: 0;
+  max-width: min(70vw, 900px);
   display: flex;
   align-items: center;
   gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
   padding: 6px;
   border-radius: var(--r-pill);
   background: #fff;
@@ -93,6 +97,8 @@ a {
 }
 
 .desktop-nav a {
+  flex: 0 0 auto;
+  white-space: nowrap;
   padding: 9px 14px;
   border-radius: var(--r-pill);
   font-size: 0.84rem;
@@ -196,7 +202,8 @@ a {
 
 .mobile-nav.open {
   display: block;
-  max-height: 420px;
+  max-height: min(80dvh, 640px);
+  overflow-y: auto;
 }
 
 .mobile-nav a {
@@ -1752,6 +1759,9 @@ a {
 @media (max-width: 840px) {
   .desktop-nav { display: none; }
   .hamburger { display: block; }
+  .header-auth-actions,
+  .header-profile-button,
+  .fuse-search-wrap { display: none; }
 
   .mobile-nav { top: 76px; }
 

@@ -12,10 +12,13 @@ const publicRootDir = path.join(rootDir, 'public');
 const publicBiomedicaDir = path.join(rootDir, 'public', 'biomedica');
 const assetsDir = path.join(rootDir, 'src', 'assets');
 const port = process.env.PORT || 4300;
-const adminUsername = process.env.ADMIN_USERNAME || 'admin';
-const adminPassword = process.env.ADMIN_PASSWORD || 'AdminBio2026!';
-const sessionSecret = process.env.SESSION_SECRET || 'biomedica-demo-secret';
+const adminUsername = process.env.ADMIN_USERNAME || '';
+const adminPassword = process.env.ADMIN_PASSWORD || '';
+const sessionSecret = process.env.SESSION_SECRET || '';
 const sessionTtlMs = Number(process.env.SESSION_TTL_MS || 1000 * 60 * 60 * 8);
+const supabaseUrl = process.env.SUPABASE_URL || '';
+const supabasePublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY || '';
+const coreApiUrl = process.env.BIOMEDICA_CORE_API_URL || '';
 
 function nowIso() {
   return new Date().toISOString();
@@ -265,7 +268,7 @@ function sendJson(res, statusCode, payload) {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'SAMEORIGIN',
@@ -273,6 +276,34 @@ function sendJson(res, statusCode, payload) {
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=()'
   });
   res.end(JSON.stringify(payload));
+}
+
+async function isActiveSupabaseAccount(authorization) {
+  if (!supabaseUrl || !supabasePublishableKey) {
+    throw new Error('Supabase no está configurado en el servidor.');
+  }
+  const baseUrl = supabaseUrl.replace(/\/+$/, '');
+  const headers = {
+    apikey: supabasePublishableKey,
+    authorization,
+  };
+  const userResponse = await fetch(`${baseUrl}/auth/v1/user`, { headers });
+  if (userResponse.status === 401) return null;
+  if (!userResponse.ok) {
+    throw new Error(`No se pudo validar la sesión de Supabase (HTTP ${userResponse.status}).`);
+  }
+  const user = await userResponse.json();
+  if (typeof user.id !== 'string') return false;
+
+  const profileUrl = new URL(`${baseUrl}/rest/v1/profiles`);
+  profileUrl.searchParams.set('id', `eq.${user.id}`);
+  profileUrl.searchParams.set('select', 'is_active');
+  const profileResponse = await fetch(profileUrl, { headers });
+  if (!profileResponse.ok) {
+    throw new Error(`No se pudo validar el estado de la cuenta (HTTP ${profileResponse.status}).`);
+  }
+  const profiles = await profileResponse.json();
+  return Array.isArray(profiles) && profiles.length === 1 && profiles[0].is_active === true;
 }
 
 function readBody(req) {
@@ -400,6 +431,72 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (pathname === '/config.json' && req.method === 'GET') {
+    if (!supabaseUrl || !supabasePublishableKey) {
+      sendJson(res, 503, { message: 'El portal web no tiene configurado Supabase.' });
+      return;
+    }
+    sendJson(res, 200, {
+      supabaseUrl,
+      supabasePublishableKey,
+    });
+    return;
+  }
+
+  if (pathname === '/api/core/reports' && req.method === 'GET') {
+    const authorization = req.headers.authorization || '';
+    if (!/^Bearer\s+\S+$/.test(authorization)) {
+      unauthorized(res, 'Inicia sesión para consultar los reportes.');
+      return;
+    }
+    try {
+      const activeAccount = await isActiveSupabaseAccount(authorization);
+      if (activeAccount === null) {
+        unauthorized(res, 'La sesión de Supabase no es válida.');
+        return;
+      }
+      if (!activeAccount) {
+        forbidden(res, 'La cuenta está inactiva. Contacta al administrador.');
+        return;
+      }
+    } catch (error) {
+      console.error('Supabase account status check failed:', error.message);
+      sendJson(res, 503, { message: 'No se pudo validar el estado de la cuenta.' });
+      return;
+    }
+    if (!coreApiUrl) {
+      sendJson(res, 503, { message: 'La API de reportes no está configurada.' });
+      return;
+    }
+    try {
+      const upstream = await fetch(
+        `${coreApiUrl.replace(/\/+$/, '')}/api/reports`,
+        {
+          headers: { authorization },
+          signal: AbortSignal.timeout(10000),
+        },
+      );
+      const body = await upstream.arrayBuffer();
+      res.writeHead(upstream.status, {
+        'Content-Type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      res.end(Buffer.from(body));
+    } catch (error) {
+      console.error('Report API proxy request failed:', error.message);
+      sendJson(res, 502, { message: 'No se pudo conectar con el servicio de reportes.' });
+    }
+    return;
+  }
+
+  if (pathname.startsWith('/api/admin/')) {
+    sendJson(res, 410, {
+      error: 'La administración local fue retirada. Usa el portal autenticado con Supabase.',
+    });
+    return;
+  }
+
   if (pathname === '/api/devices' && req.method === 'GET') {
     sendJson(res, 200, {
       wearables: state.wearables,
@@ -436,14 +533,38 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/tv-feed' && req.method === 'GET') {
-    syncActiveTelemetry();
-    sendJson(res, 200, {
-      currentTurn: getCurrentAppointment(),
-      queue: getQueueAppointments(),
-      wearable: pickWearable(state.activeWearableId),
-      tv: pickTv(state.activeTvId),
-      lastTelemetry: state.lastTelemetry,
-    });
+    if (!supabaseUrl || !supabasePublishableKey) {
+      sendJson(res, 503, { error: 'La cola de turnos compartida no está configurada.' });
+      return;
+    }
+    try {
+      const upstream = await fetch(
+        `${supabaseUrl.replace(/\/+$/, '')}/rest/v1/rpc/public_clinic_turn_feed`,
+        {
+          headers: {
+            apikey: supabasePublishableKey,
+            authorization: `Bearer ${supabasePublishableKey}`,
+          },
+          signal: AbortSignal.timeout(10000),
+        },
+      );
+      if (!upstream.ok) {
+        console.error('Supabase public turn feed returned HTTP', upstream.status);
+        sendJson(res, 502, { error: 'No se pudo consultar la cola compartida de turnos.' });
+        return;
+      }
+      const queue = await upstream.json();
+      sendJson(res, 200, {
+        currentTurn: queue.find((turn) => turn.status === 'en_atencion') || null,
+        queue: queue.filter((turn) => turn.status !== 'finalizado'),
+        wearable: pickWearable(state.activeWearableId),
+        tv: pickTv(state.activeTvId),
+        lastTelemetry: state.lastTelemetry,
+      });
+    } catch (error) {
+      console.error('Supabase public turn feed request failed:', error.message);
+      sendJson(res, 502, { error: 'No se pudo conectar con la cola compartida de turnos.' });
+    }
     return;
   }
 

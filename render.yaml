@@ -2,7 +2,7 @@ services:
   - type: web
     name: biomedica-smarttv
     runtime: node
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm run serve:prod
     plan: free
     envVars:
@@ -14,3 +14,9 @@ services:
         sync: false
       - key: SESSION_SECRET
         generateValue: true
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: BIOMEDICA_CORE_API_URL
+        value: https://app-biomedica-web.onrender.com

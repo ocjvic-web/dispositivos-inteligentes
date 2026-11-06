@@ -20,16 +20,22 @@
   </button>
 
   <nav class="desktop-nav">
-    <a href="#" (click)="navegar('inicio');$event.preventDefault()" [class.active]="vistaActiva==='inicio'">Inicio</a>
-    <a href="#" (click)="navegar('wearable');$event.preventDefault()" [class.active]="vistaActiva==='wearable'">⌚ Wearables</a>
-    <a href="#" (click)="navegar('webos');$event.preventDefault()" [class.active]="vistaActiva==='webos'">📺 LG webOS</a>
-    <a href="#" (click)="navegar('tvwall');$event.preventDefault()" [class.active]="vistaActiva==='tvwall'">🖥️ Smart TV</a>
-    <a href="#" (click)="navegar('dashboard');$event.preventDefault()" [class.active]="vistaActiva==='dashboard'">📋 Dashboard</a>
-    <a href="#" (click)="navegar('admin');$event.preventDefault()" [class.active]="vistaActiva==='admin'">🔐 Admin</a>
-    <a href="#" (click)="navegar('estadisticas');$event.preventDefault()" [class.active]="vistaActiva==='estadisticas'">📊 Estadísticas</a>
-    <a href="#" (click)="navegar('contacto');$event.preventDefault()" [class.active]="vistaActiva==='contacto'">✉ Contacto</a>
+    @for (item of navigationItems; track item.vista) {
+      <a href="#" (click)="navegar(item.vista);$event.preventDefault()" [class.active]="vistaActiva===item.vista">{{ item.label }}</a>
+    }
   </nav>
+  @if (!portalProfile) {
+    <div class="header-auth-actions">
+      <button class="header-login-button" (click)="openPortalAuth('login')">Iniciar sesión</button>
+      <button class="header-register-button" (click)="openPortalAuth('register')">Registro</button>
+    </div>
+  } @else {
+    <button class="header-profile-button" (click)="navegar(portalProfile.role === 'patient' ? 'patient-profile' : portalProfile.role === 'doctor' ? 'support' : 'admin')" aria-label="Abrir cuenta">
+      {{ portalProfile.first_name }}
+    </button>
+  }
   <!-- Buscador Fuse.js -->
+  @if (portalProfile?.role === 'doctor' || portalProfile?.role === 'admin') {
   <div class="fuse-search-wrap">
     <button class="fuse-search-btn" (click)="abrirBusqueda()" aria-label="Buscar">🔍</button>
     @if (busquedaAbierta) {
@@ -55,6 +61,7 @@
       </div>
     }
   </div>
+  }
 
   <button class="hamburger" (click)="toggleMenu()" [class.open]="menuAbierto" aria-label="Menú">
     <span></span><span></span><span></span>
@@ -63,14 +70,15 @@
 
 <!-- Mobile nav -->
 <div class="mobile-nav" [class.open]="menuAbierto">
-  <a href="#" (click)="navegar('inicio');$event.preventDefault()">🏠 Inicio</a>
-  <a href="#" (click)="navegar('wearable');$event.preventDefault()">⌚ Wearables Clínicos</a>
-  <a href="#" (click)="navegar('webos');$event.preventDefault()">📺 LG webOS</a>
-  <a href="#" (click)="navegar('tvwall');$event.preventDefault()">🖥️ Pantalla Smart TV</a>
-  <a href="#" (click)="navegar('dashboard');$event.preventDefault()">📋 Dashboard Clínico</a>
-  <a href="#" (click)="navegar('admin');$event.preventDefault()">🔐 Administración</a>
-  <a href="#" (click)="navegar('estadisticas');$event.preventDefault()">📊 Estadísticas</a>
-  <a href="#" (click)="navegar('contacto');$event.preventDefault()">✉ Contacto</a>
+  @for (item of navigationItems; track item.vista) {
+    <a href="#" (click)="navegar(item.vista);$event.preventDefault()">{{ item.label }}</a>
+  }
+  @if (!portalProfile) {
+    <a href="#" (click)="openPortalAuth('login');$event.preventDefault()">Iniciar sesión</a>
+    <a href="#" (click)="openPortalAuth('register');$event.preventDefault()">Registro</a>
+  } @else {
+    <a href="#" (click)="signOutPortal();$event.preventDefault()">Cerrar sesión</a>
+  }
 </div>
 
 <!-- ══ VISTA: INICIO ════════════════════════════════════════════════════════ -->
@@ -483,7 +491,7 @@
   <div class="webos-wrapper">
     <div class="wearable-header">
       <div>
-        <div class="section-tag">LG webOS</div>
+        <div class="section-tag">Conexiones</div>
         <h2>Conexión con Smart TV</h2>
         <p class="subtitle">Empareja el wearable con una Smart TV LG webOS para mostrar telemetría clínica en tiempo real.</p>
       </div>
@@ -632,149 +640,544 @@
   </div>
 }
 
-<!-- ══ VISTA: ADMIN ═══════════════════════════════════════════════════════ -->
-@if (vistaActiva === 'admin') {
-  <div class="admin-wrapper page-wrapper">
+<!-- ══ VISTA: PORTAL CLÍNICO ══════════════════════════════════════════════ -->
+@if (vistaActiva === 'admin' || vistaActiva === 'patient-reports' || vistaActiva === 'patient-vitals'
+  || vistaActiva === 'patient-history' || vistaActiva === 'patient-profile'
+  || vistaActiva === 'patient-consult' || vistaActiva === 'doctor-chats' || vistaActiva === 'support') {
+  <div class="admin-wrapper page-wrapper portal-wrapper">
     <div class="page-header">
-      <div class="section-tag">Seguridad web</div>
-      <h2>Panel de administradores</h2>
-      <p class="subtitle">Autenticación, gestión de usuarios y control operativo de la pantalla Smart TV.</p>
+      <div class="section-tag">Portal clínico</div>
+      <h2>BioMedica · Acceso seguro</h2>
+      <p class="subtitle">Pacientes, médicos y administradores comparten la información autorizada en Supabase.</p>
     </div>
 
-    @if (!adminSession) {
-      <section class="admin-login-card">
-        <h3>Ingreso administrativo</h3>
-        <p>{{ adminMensaje }}</p>
-        <p class="subtitle">Descarga directa del APK del smartwatch: <a [href]="apkDownloadUrl" target="_blank" rel="noopener">{{ apkDownloadUrl }}</a></p>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="admin-user">Usuario</label>
-            <input id="admin-user" type="text" [(ngModel)]="adminLogin.username" name="adminUser" placeholder="admin" />
+    @if (!portalReady) {
+      <section class="portal-card"><p>Conectando con el servicio de autenticación…</p></section>
+    } @else if (!portalProfile) {
+      <section class="admin-login-card portal-login-card">
+        <h3>{{ portalAuthMode === 'login' ? 'Inicia sesión en BioMedica' : 'Crea tu cuenta BioMedica' }}</h3>
+        <p>
+          {{ portalAuthMode === 'login'
+            ? 'Accede con la misma cuenta que utilizas en la aplicación móvil.'
+            : 'Usa tus datos reales. La cuenta se conectará a la misma información de BioMedica.' }}
+        </p>
+        @if (portalError) { <div class="portal-notice" role="alert">{{ portalError }}</div> }
+        @if (portalStatus) { <div class="portal-status" role="status">{{ portalStatus }}</div> }
+
+        @if (portalAuthMode === 'login') {
+          <form class="portal-auth-form" (ngSubmit)="signInPortal()">
+            <div class="form-group">
+              <label for="portal-email">Correo electrónico</label>
+              <input id="portal-email" type="email" [(ngModel)]="portalLogin.email" name="portalEmail" autocomplete="username" placeholder="Correo electrónico" required />
+            </div>
+            <div class="form-group">
+              <label for="portal-password">Contraseña</label>
+              <input id="portal-password" type="password" [(ngModel)]="portalLogin.password" name="portalPassword" autocomplete="current-password" placeholder="Contraseña" required />
+            </div>
+            <button class="btn-primary" type="submit" [disabled]="portalBusy || !portalLogin.email || !portalLogin.password">
+              {{ portalBusy ? 'Validando…' : 'Iniciar sesión' }}
+            </button>
+            <button class="portal-link-button" type="button" (click)="requestPortalPasswordReset()" [disabled]="portalBusy">¿Olvidaste tu contraseña?</button>
+            <p class="portal-auth-switch">¿Aún no tienes cuenta? <button type="button" class="portal-link-button" (click)="setPortalAuthMode('register')">Regístrate</button></p>
+          </form>
+        } @else {
+          <div class="portal-role-choice" role="group" aria-label="Tipo de cuenta">
+            <button type="button" [class.selected]="portalRegistrationRole === 'patient'" (click)="setPortalRegistrationRole('patient')">Paciente</button>
+            <button type="button" [class.selected]="portalRegistrationRole === 'doctor'" (click)="setPortalRegistrationRole('doctor')">Médico</button>
           </div>
-          <div class="form-group">
-            <label for="admin-pass">Contraseña</label>
-            <input id="admin-pass" type="password" [(ngModel)]="adminLogin.password" name="adminPass" placeholder="••••••••" />
+
+          <form class="portal-auth-form" (ngSubmit)="registerPortal()">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="registration-first-name">Nombre</label>
+                <input id="registration-first-name" type="text" [(ngModel)]="portalRegistration.firstName" name="firstName" autocomplete="given-name" maxlength="100" placeholder="Nombre" required />
+              </div>
+              <div class="form-group">
+                <label for="registration-last-name">Apellidos</label>
+                <input id="registration-last-name" type="text" [(ngModel)]="portalRegistration.lastName" name="lastName" autocomplete="family-name" maxlength="150" placeholder="Apellidos" required />
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="registration-date-of-birth">Fecha de nacimiento</label>
+              <input id="registration-date-of-birth" type="date" [(ngModel)]="portalRegistration.dateOfBirth" name="dateOfBirth" [max]="portalDateOfBirthMax" required />
+            </div>
+
+            @if (portalRegistrationRole === 'patient') {
+              <fieldset class="portal-condition-fieldset">
+                <legend>Padecimientos crónicos (opcional)</legend>
+                @for (condition of portalChronicConditionOptions; track condition) {
+                  <label class="portal-check-row">
+                    <input #conditionInput type="checkbox" [checked]="portalRegistration.chronicConditions.includes(condition)" (change)="togglePortalCondition(condition, conditionInput.checked)" />
+                    <span>{{ condition }}</span>
+                  </label>
+                }
+                @if (portalRegistration.chronicConditions.includes('Otra')) {
+                  <div class="form-group">
+                    <label for="other-chronic-condition">¿Cuál padecimiento?</label>
+                    <input id="other-chronic-condition" type="text" [(ngModel)]="portalRegistration.otherChronicCondition" name="otherChronicCondition" maxlength="150" placeholder="Otro padecimiento" />
+                  </div>
+                }
+              </fieldset>
+            } @else {
+              <div class="portal-doctor-fields">
+                <p class="portal-muted">La cédula y los datos profesionales quedarán pendientes de revisión. No se habilitará el acceso clínico hasta que un administrador los verifique y apruebe.</p>
+                <div class="form-group">
+                  <label for="professional-license">Cédula profesional</label>
+                  <input id="professional-license" type="text" [(ngModel)]="portalRegistration.professionalLicense" name="professionalLicense" minlength="5" maxlength="40" placeholder="Cédula profesional" required />
+                </div>
+                <div class="form-group">
+                  <label for="medical-specialty">Especialidad</label>
+                  <input id="medical-specialty" type="text" [(ngModel)]="portalRegistration.specialty" name="specialty" maxlength="120" placeholder="Especialidad" required />
+                </div>
+                <div class="form-group">
+                  <label for="specialty-license">Cédula de especialidad (opcional)</label>
+                  <input id="specialty-license" type="text" [(ngModel)]="portalRegistration.specialtyLicense" name="specialtyLicense" minlength="5" maxlength="40" placeholder="Cédula de especialidad" />
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="doctor-institution">Institución (opcional)</label>
+                    <input id="doctor-institution" type="text" [(ngModel)]="portalRegistration.institution" name="institution" maxlength="160" placeholder="Institución" />
+                  </div>
+                  <div class="form-group">
+                    <label for="doctor-phone">Teléfono de contacto (opcional)</label>
+                    <input id="doctor-phone" type="tel" [(ngModel)]="portalRegistration.contactPhone" name="contactPhone" minlength="7" maxlength="25" placeholder="Teléfono de contacto" />
+                  </div>
+                </div>
+              </div>
+            }
+
+            <div class="form-group">
+              <label for="registration-email">Correo electrónico</label>
+              <input id="registration-email" type="email" [(ngModel)]="portalRegistration.email" name="registrationEmail" autocomplete="email" maxlength="254" placeholder="Correo electrónico" required />
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="registration-password">Contraseña</label>
+                <input id="registration-password" [type]="portalPasswordVisible ? 'text' : 'password'" [(ngModel)]="portalRegistration.password" name="registrationPassword" autocomplete="new-password" minlength="8" maxlength="30" placeholder="Contraseña" required />
+              </div>
+              <div class="form-group">
+                <label for="registration-confirm-password">Confirmar contraseña</label>
+                <input id="registration-confirm-password" type="password" [(ngModel)]="portalRegistration.confirmPassword" name="confirmPassword" autocomplete="new-password" minlength="8" maxlength="30" placeholder="Confirmar contraseña" required />
+              </div>
+            </div>
+            <button type="button" class="portal-link-button" (click)="portalPasswordVisible = !portalPasswordVisible">
+              {{ portalPasswordVisible ? 'Ocultar contraseña' : 'Mostrar contraseña' }}
+            </button>
+            <div class="portal-terms-row">
+              <span>{{ portalRegistration.termsAccepted ? 'Términos leídos y aceptados.' : 'Debes leer y aceptar los términos para continuar.' }}</span>
+              <button type="button" class="portal-link-button" (click)="openPortalTerms()">Leer términos y condiciones</button>
+            </div>
+            <button class="btn-primary" type="submit" [disabled]="portalBusy || !portalRegistration.termsAccepted">
+              {{ portalBusy ? 'Creando cuenta…' : 'Crear cuenta' }}
+            </button>
+            <p class="portal-auth-switch">¿Ya tienes cuenta? <button type="button" class="portal-link-button" (click)="setPortalAuthMode('login')">Inicia sesión</button></p>
+          </form>
+        }
+
+        @if (portalTermsOpen) {
+          <div class="portal-terms-backdrop" role="presentation">
+            <section class="portal-terms-dialog" role="dialog" aria-modal="true" aria-labelledby="portal-terms-title">
+              <h3 id="portal-terms-title">Términos y condiciones de BioMedica</h3>
+              <p class="portal-muted">Versión 1.0 · Vigentes desde el 27 de octubre de 2026</p>
+              <div class="portal-terms-content" (scroll)="onPortalTermsScroll($event)">
+                @for (section of portalTermsSections; track section.title) {
+                  <article>
+                    <h4>{{ section.title }}</h4>
+                    <p>{{ section.body }}</p>
+                  </article>
+                }
+              </div>
+              <label class="portal-check-row">
+                <input type="checkbox" [(ngModel)]="portalTermsAcceptedInDialog" [disabled]="!portalTermsReadToEnd" />
+                <span>{{ portalTermsReadToEnd
+                  ? 'Confirmo que leí y acepto estos términos y el tratamiento de mis datos de salud.'
+                  : 'Desplázate hasta el final para habilitar la aceptación.' }}</span>
+              </label>
+              <div class="portal-terms-actions">
+                <button class="btn-secondary" type="button" (click)="closePortalTerms()">Cancelar</button>
+                <button class="btn-primary" type="button" (click)="acceptPortalTerms()" [disabled]="!portalTermsAcceptedInDialog">Aceptar y volver</button>
+              </div>
+            </section>
           </div>
-        </div>
-        <button class="btn-primary" (click)="iniciarSesionAdmin()" [disabled]="adminBusy">{{ adminBusy ? 'Validando...' : 'Iniciar sesión' }}</button>
+        }
       </section>
     } @else {
-      <section class="admin-session-bar">
+      <section class="admin-session-bar portal-session-bar">
         <div>
-          <strong>{{ adminSession.displayName }}</strong>
-          <span>{{ adminSession.role }} · expira {{ adminSession.expiresAt | date:'short' }}</span>
+          <strong>{{ portalProfile.first_name }} {{ portalProfile.last_name }}</strong>
+          <span>{{ portalProfile.email }} · {{ portalProfile.role }}</span>
         </div>
         <div class="admin-session-actions">
-          <button class="btn-secondary" (click)="cargarPanelAdmin()">Sincronizar</button>
-          <button class="btn-secondary" (click)="cerrarSesionAdmin()">Cerrar sesión</button>
+          @if (portalProfile.role !== 'admin' && vistaActiva !== 'support') {
+            <button class="btn-secondary" (click)="navegar('support')">Ayuda y soporte</button>
+          }
+          <button class="btn-secondary" (click)="refreshPortalData()" [disabled]="portalBusy">Sincronizar</button>
+          <button class="btn-secondary" (click)="signOutPortal()" [disabled]="portalBusy">Cerrar sesión</button>
         </div>
       </section>
 
-      <div class="success-banner admin-banner">{{ adminMensaje }}</div>
+      @if (portalError) { <div class="portal-notice" role="status">{{ portalError }}</div> }
+      @if (portalStatus) { <div class="portal-status" role="status">{{ portalStatus }}</div> }
 
-      <section class="admin-grid">
-        <article class="contact-form-card">
-          <h3>Registrar administrador</h3>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="new-display">Nombre</label>
-              <input id="new-display" type="text" [(ngModel)]="nuevoUsuario.displayName" name="newDisplay" placeholder="Ana Torres" />
+      @if (portalProfile.doctor_application_status) {
+        <section class="portal-card doctor-application-status">
+          <h3>Solicitud de cuenta médica</h3>
+          <p>{{ doctorApplicationStatusLabel }}</p>
+          @if (portalProfile.doctor_application_status === 'pending') {
+            <p class="portal-muted">Un administrador debe verificar tus datos antes de asignarte pacientes o habilitar el acceso clínico.</p>
+          }
+          @if (portalProfile.doctor_application_notes) {
+            <p><strong>Observaciones:</strong> {{ portalProfile.doctor_application_notes }}</p>
+          }
+        </section>
+      } @else if (vistaActiva === 'support') {
+        <section class="portal-grid support-grid">
+          <article class="portal-card">
+            <h3>{{ portalProfile.role === 'admin' ? 'Solicitudes de soporte' : 'Atención al usuario' }}</h3>
+            @if (portalProfile.role !== 'admin') {
+              <button class="btn-primary" (click)="startSupportConversation()" [disabled]="portalBusy">Iniciar conversación</button>
+            }
+            @if (supportConversations.length === 0) {
+              <p class="portal-muted">No hay conversaciones de soporte.</p>
+            }
+            <div class="portal-list">
+              @for (conversation of supportConversations; track conversation.id) {
+                <button class="portal-list-item" [class.selected]="selectedSupportConversationId === conversation.id" (click)="selectSupportConversation(conversation)">
+                  <strong>{{ portalProfile.role === 'admin' ? supportCustomerName(conversation.customer_uid) : 'Soporte BioMedica' }}</strong>
+                  <span>{{ conversation.subject }} · {{ conversation.status === 'open' ? 'Abierta' : 'Cerrada' }}</span>
+                  <small>{{ conversation.updated_at | date:'short' }}</small>
+                </button>
+              }
             </div>
-            <div class="form-group">
-              <label for="new-username">Usuario</label>
-              <input id="new-username" type="text" [(ngModel)]="nuevoUsuario.username" name="newUsername" placeholder="atorres" />
+          </article>
+          <article class="portal-card portal-chat-card">
+            <h3>Chat de soporte</h3>
+            @if (!selectedSupportConversationId) {
+              <p>Selecciona una conversación o inicia una nueva para contactar al equipo BioMedica.</p>
+            } @else {
+              <div class="portal-chat-messages" aria-live="polite">
+                @for (message of supportMessages; track message.id) {
+                  <div class="portal-message" [class.own]="message.sender_uid === portalProfile.id">
+                    <small>{{ message.sender_uid === portalProfile.id ? 'Tú' : portalProfile.role === 'admin' ? supportCustomerName(selectedSupportCustomerUid) : 'Soporte BioMedica' }} · {{ message.created_at | date:'short' }}</small>
+                    <p>{{ message.body }}</p>
+                  </div>
+                }
+              </div>
+              <textarea [(ngModel)]="supportMessageDraft" name="supportMessage" rows="3" maxlength="4000" placeholder="Escribe tu mensaje…"></textarea>
+              <button class="btn-primary" (click)="sendSupportMessage()" [disabled]="portalBusy || !supportMessageDraft.trim() || (portalProfile.role !== 'admin' && selectedSupportStatus === 'closed')">Enviar</button>
+              @if (portalProfile.role === 'admin') {
+                <button class="btn-secondary" (click)="setSupportConversationStatus('closed')" [disabled]="portalBusy || selectedSupportStatus === 'closed'">Cerrar solicitud</button>
+                <button class="btn-secondary" (click)="setSupportConversationStatus('open')" [disabled]="portalBusy || selectedSupportStatus === 'open'">Reabrir solicitud</button>
+              }
+            }
+          </article>
+        </section>
+      } @else if (portalProfile.role === 'doctor') {
+        <section class="portal-grid">
+          <article class="portal-card">
+            <h3>Mis pacientes</h3>
+            <p class="portal-muted">Solo aparecen pacientes asignados por un administrador.</p>
+            @if (portalPatients.length === 0) {
+              <p>Aún no tienes pacientes asignados.</p>
+            }
+            <div class="portal-list">
+              @for (patient of portalPatients; track patient.id) {
+                <button class="portal-list-item" [class.selected]="selectedPatientUid === patient.id" (click)="selectPatientForDoctor(patient)">
+                  <strong>{{ patient.first_name }} {{ patient.last_name }}</strong>
+                  <span>{{ patient.email }}</span>
+                </button>
+              }
             </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="new-password">Contraseña</label>
-              <input id="new-password" type="password" [(ngModel)]="nuevoUsuario.password" name="newPassword" placeholder="min 8 caracteres" />
-            </div>
-            <div class="form-group">
-              <label for="new-role">Rol</label>
-              <select id="new-role" [(ngModel)]="nuevoUsuario.role" name="newRole">
-                <option value="superadmin">superadmin</option>
-                <option value="operador">operador</option>
-                <option value="visor">visor</option>
-              </select>
-            </div>
-          </div>
-          <button class="btn-primary" (click)="crearUsuarioAdministrador()">Crear usuario</button>
-        </article>
+          </article>
 
-        <article class="contact-info-card admin-users-card">
-          <h3>Usuarios activos</h3>
-          <div class="admin-user-list">
-            @for (user of adminUsers; track user.id) {
-              <div class="admin-user-item">
-                <div>
-                  <strong>{{ user.displayName }}</strong>
-                  <span>{{ user.username }} · {{ user.role }}</span>
+          @if (vistaActiva !== 'doctor-chats') {
+          <article class="portal-card portal-detail-card">
+            @if (selectedPatientUid) {
+              @let patient = selectedDoctorPatient;
+              <h3>{{ patient?.first_name }} {{ patient?.last_name }} · Resumen clínico</h3>
+              <p class="portal-muted">Los datos son informativos y no sustituyen el juicio clínico ni una valoración profesional.</p>
+              <h4>Mediciones recientes</h4>
+              @if (measurementsForSelectedPatient.length === 0) {
+                <p>No hay mediciones disponibles.</p>
+              }
+              @for (measurement of measurementsForSelectedPatient; track measurement['id']) {
+                <div class="portal-data-row">
+                  <span>{{ formatPortalDate(measurement['reading_at']) }}</span>
+                  <span>FC {{ measurement['heart_rate_bpm'] ?? '—' }} bpm</span>
+                  <span>SpO₂ {{ measurement['oxygen_saturation_percent'] ?? '—' }}%</span>
+                  <span>Temp. {{ measurement['body_temperature_celsius'] ?? '—' }} °C</span>
                 </div>
-                <button class="btn-secondary" (click)="alternarEstadoUsuario(user)">{{ user.status === 'activo' ? 'Bloquear' : 'Activar' }}</button>
+              }
+              <h4>Reportes</h4>
+              @if (reportsForSelectedPatient.length === 0) {
+                <p>No hay reportes disponibles para este paciente.</p>
+              }
+              @for (report of reportsForSelectedPatient; track report['id']) {
+                <div class="portal-data-row">
+                  <span>{{ formatPortalDate(report['createdAt'] ?? report['created_at'] ?? report['timestamp']) }}</span>
+                  <span>{{ report['malestar'] ?? report['symptom'] ?? 'Reporte clínico' }}</span>
+                  <span>{{ report['prioridad'] ?? report['priority'] ?? '' }}</span>
+                </div>
+              }
+            } @else {
+              <h3>Selecciona un paciente</h3>
+              <p>Consulta sus mediciones, reportes y conversación clínica autorizada.</p>
+            }
+          </article>
+          }
+
+          <article class="portal-card portal-chat-card">
+            <h3>Chat clínico</h3>
+            @if (!selectedConversationId) {
+              <p>Selecciona uno de tus pacientes para abrir su conversación segura.</p>
+            } @else {
+              <div class="portal-chat-messages" aria-live="polite">
+                @for (message of portalMessages; track message.id) {
+                  <div class="portal-message" [class.own]="message.sender_uid === portalProfile.id">
+                    <small>{{ message.message_type === 'prescription_info' ? 'Indicación informativa (no es receta)' : message.message_type === 'clinical_note' ? 'Nota clínica' : 'Chat' }} · {{ message.created_at | date:'short' }}</small>
+                    <p>{{ message.body }}</p>
+                    @if (signedImages[message.id]) {
+                      <img [src]="signedImages[message.id]" alt="Imagen privada adjunta a la conversación" />
+                    }
+                  </div>
+                }
+              </div>
+              <label for="doctor-message-type">Tipo de mensaje</label>
+              <select id="doctor-message-type" [(ngModel)]="messageType" name="doctorMessageType">
+                <option value="chat">Chat</option>
+                <option value="clinical_note">Nota clínica</option>
+                <option value="prescription_info">Indicación informativa (no receta)</option>
+              </select>
+              <textarea [(ngModel)]="messageDraft" name="doctorMessage" rows="3" maxlength="4000" placeholder="Escribe un mensaje…"></textarea>
+              <label class="portal-file-label">Adjuntar imagen JPEG o PNG (máx. 10 MB)
+                <input type="file" accept="image/jpeg,image/png" (change)="handleImageSelect($event)" />
+              </label>
+              @if (selectedImage) { <span class="portal-muted">{{ selectedImage.name }}</span> }
+              <button class="btn-primary" (click)="sendDoctorMessage()" [disabled]="portalBusy || !messageDraft.trim()">Enviar</button>
+            }
+          </article>
+        </section>
+      } @else if (portalProfile.role === 'patient') {
+        @if (vistaActiva === 'patient-reports') {
+          <section class="portal-card patient-data-panel">
+            <h3>Mis reportes</h3>
+            <p class="portal-muted">Reportes vinculados a tu cuenta BioMedica.</p>
+            @if (portalReports.length === 0) { <p>Aún no hay reportes registrados.</p> }
+            @for (report of portalReports; track report['id']) {
+              <article class="portal-data-row">
+                <strong>{{ report['malestar'] ?? report['symptom'] ?? report['title'] ?? 'Reporte de salud' }}</strong>
+                <span>{{ report['prioridad'] ?? report['priority'] ?? '' }}</span>
+                <span>{{ formatPortalDate(report['createdAt'] ?? report['created_at'] ?? report['timestamp']) }}</span>
+                <p>{{ report['descripcion'] ?? report['description'] ?? '' }}</p>
+              </article>
+            }
+          </section>
+        } @else if (vistaActiva === 'patient-vitals') {
+          <section class="portal-card patient-data-panel">
+            <h3>Mis signos vitales</h3>
+            <p class="portal-muted">Mediciones sincronizadas desde la aplicación móvil y el smartwatch.</p>
+            @if (portalMeasurements.length === 0) { <p>No hay mediciones sincronizadas.</p> }
+            @for (measurement of portalMeasurements; track measurement['id']) {
+              <div class="portal-data-row">
+                <span>{{ formatPortalDate(measurement['reading_at']) }}</span>
+                <span>Frecuencia cardiaca: {{ measurement['heart_rate_bpm'] ?? '—' }} bpm</span>
+                <span>SpO₂: {{ measurement['oxygen_saturation_percent'] ?? '—' }}%</span>
+                <span>Temperatura: {{ measurement['body_temperature_celsius'] ?? '—' }} °C</span>
+                <span>{{ measurement['device_name'] ?? 'Dispositivo' }}</span>
               </div>
             }
-          </div>
-        </article>
-
-        <article class="contact-form-card">
-          <h3>Registrar turno para Smart TV</h3>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="turno-codigo">Código</label>
-              <input id="turno-codigo" type="text" [(ngModel)]="nuevoTurno.codigo" name="turnoCodigo" placeholder="A-204" />
-            </div>
-            <div class="form-group">
-              <label for="turno-paciente">Paciente</label>
-              <input id="turno-paciente" type="text" [(ngModel)]="nuevoTurno.paciente" name="turnoPaciente" placeholder="María López" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="turno-servicio">Servicio</label>
-              <input id="turno-servicio" type="text" [(ngModel)]="nuevoTurno.servicio" name="turnoServicio" />
-            </div>
-            <div class="form-group">
-              <label for="turno-sala">Sala</label>
-              <input id="turno-sala" type="text" [(ngModel)]="nuevoTurno.sala" name="turnoSala" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="turno-prioridad">Prioridad</label>
-              <select id="turno-prioridad" [(ngModel)]="nuevoTurno.prioridad" name="turnoPrioridad">
-                <option value="alta">alta</option>
-                <option value="media">media</option>
-                <option value="baja">baja</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label for="turno-eta">ETA min</label>
-              <input id="turno-eta" type="number" min="0" [(ngModel)]="nuevoTurno.etaMin" name="turnoEta" />
-            </div>
-          </div>
-          <button class="btn-primary" (click)="crearTurnoAtencion()">Registrar turno</button>
-        </article>
-
-        <article class="contact-info-card admin-turnos-card">
-          <h3>Cola de atención</h3>
-          <div class="admin-turno-list">
-            @for (turno of turnosAtencion; track turno.id) {
-              <div class="admin-turno-item">
-                <div>
-                  <strong>{{ turno.codigo }} · {{ turno.paciente }}</strong>
-                  <span>{{ turno.servicio }} · {{ turno.sala }} · {{ etiquetaEstadoTurno(turno.estado) }}</span>
-                </div>
-                <div class="admin-turno-actions">
-                  <button class="btn-secondary" (click)="cambiarEstadoTurnoAdmin(turno, 'en_espera')">Espera</button>
-                  <button class="btn-secondary" (click)="cambiarEstadoTurnoAdmin(turno, 'en_atencion')">Atención</button>
-                  <button class="btn-secondary" (click)="cambiarEstadoTurnoAdmin(turno, 'finalizado')">Finalizar</button>
-                </div>
+          </section>
+        } @else if (vistaActiva === 'patient-history') {
+          <section class="portal-card patient-data-panel">
+            <h3>Historial de actividad</h3>
+            <h4>Signos vitales</h4>
+            @for (measurement of portalMeasurements; track measurement['id']) {
+              <div class="portal-data-row">
+                <span>{{ formatPortalDate(measurement['reading_at']) }}</span>
+                <span>FC {{ measurement['heart_rate_bpm'] ?? '—' }} bpm · SpO₂ {{ measurement['oxygen_saturation_percent'] ?? '—' }}%</span>
               </div>
             }
-          </div>
-        </article>
-      </section>
+            <h4>Reportes</h4>
+            @for (report of portalReports; track report['id']) {
+              <div class="portal-data-row">
+                <span>{{ formatPortalDate(report['createdAt'] ?? report['created_at'] ?? report['timestamp']) }}</span>
+                <span>{{ report['malestar'] ?? report['symptom'] ?? report['title'] ?? 'Reporte de salud' }}</span>
+                <span>{{ report['prioridad'] ?? report['priority'] ?? '' }}</span>
+              </div>
+            }
+            @if (portalMeasurements.length === 0 && portalReports.length === 0) { <p>Aún no hay actividad clínica registrada.</p> }
+          </section>
+        } @else if (vistaActiva === 'patient-profile') {
+          <section class="portal-card patient-data-panel">
+            <h3>Mi perfil</h3>
+            <div class="portal-data-row"><strong>Nombre</strong><span>{{ portalProfile.first_name }} {{ portalProfile.last_name }}</span></div>
+            <div class="portal-data-row"><strong>Correo</strong><span>{{ portalProfile.email }}</span></div>
+            <div class="portal-data-row"><strong>Fecha de nacimiento</strong><span>{{ portalProfile.date_of_birth || 'No disponible' }}</span></div>
+            <div class="portal-data-row"><strong>Padecimientos registrados</strong><span>{{ portalProfile.chronic_conditions?.join(', ') || 'Ninguno registrado' }}</span></div>
+            <button class="btn-secondary" (click)="navegar('support')">Solicitar ayuda con mi cuenta</button>
+          </section>
+        } @else {
+        <section class="portal-grid patient-portal-grid">
+          <article class="portal-card">
+            <h3>Mis médicos</h3>
+            <p class="portal-muted">La conversación solo está disponible con profesionales asignados.</p>
+            @if (portalDoctors.length === 0) {
+              <p>Aún no tienes médicos asignados.</p>
+            }
+            <div class="portal-list">
+              @for (doctor of portalDoctors; track doctor.id) {
+                <button class="portal-list-item" (click)="startPatientChat(doctor)">
+                  <strong>{{ doctor.first_name }} {{ doctor.last_name }}</strong>
+                  <span>Abrir conversación segura</span>
+                </button>
+              }
+            </div>
+            <h4>Conversaciones</h4>
+            @for (conversation of portalConversations; track conversation.id) {
+              <button class="portal-list-item" [class.selected]="selectedConversationId === conversation.id" (click)="selectPatientConversation(conversation)">
+                <strong>{{ portalDoctorName(conversation.doctor_uid) }}</strong>
+                <span>Actualizada {{ conversation.updated_at | date:'short' }}</span>
+              </button>
+            }
+          </article>
+          <article class="portal-card portal-chat-card">
+            <h3>Chat con mi equipo médico</h3>
+            @if (!selectedConversationId) {
+              <p>Elige a un médico asignado para consultar o enviar mensajes.</p>
+            } @else {
+              <div class="portal-chat-messages" aria-live="polite">
+                @for (message of portalMessages; track message.id) {
+                  <div class="portal-message" [class.own]="message.sender_uid === portalProfile.id">
+                    <small>{{ message.message_type === 'prescription_info' ? 'Indicación informativa (no es receta)' : message.message_type === 'clinical_note' ? 'Nota clínica' : 'Chat' }} · {{ message.created_at | date:'short' }}</small>
+                    <p>{{ message.body }}</p>
+                    @if (signedImages[message.id]) {
+                      <img [src]="signedImages[message.id]" alt="Imagen privada adjunta a la conversación" />
+                    }
+                  </div>
+                }
+              </div>
+              <textarea [(ngModel)]="messageDraft" name="patientMessage" rows="3" maxlength="4000" placeholder="Escribe un mensaje…"></textarea>
+              <label class="portal-file-label">Adjuntar imagen JPEG o PNG (máx. 10 MB)
+                <input type="file" accept="image/jpeg,image/png" (change)="handleImageSelect($event)" />
+              </label>
+              @if (selectedImage) { <span class="portal-muted">{{ selectedImage.name }}</span> }
+              <button class="btn-primary" (click)="sendDoctorMessage()" [disabled]="portalBusy || !messageDraft.trim()">Enviar</button>
+            }
+          </article>
+        </section>
+        }
+      } @else {
+        <section class="portal-grid admin-portal-grid">
+          <article class="portal-card">
+            <h3>Usuarios y roles</h3>
+            <p class="portal-muted">El primer administrador se configura manualmente en Supabase. No hay alta pública de administradores.</p>
+            <div class="portal-list">
+              @for (user of portalUsers; track user.id) {
+                <div class="portal-admin-row">
+                  <div>
+                    <strong>{{ user.first_name }} {{ user.last_name }}</strong>
+                    <span>{{ user.email }} · {{ user.is_active ? 'Activo' : 'Dado de baja' }}</span>
+                  </div>
+                  <div class="portal-user-actions">
+                    <select [ngModel]="user.role" (ngModelChange)="setPortalUserRole(user, $event)" [name]="'role-' + user.id" [disabled]="portalBusy || user.id === portalProfile.id">
+                      <option value="patient">Paciente</option>
+                      <option value="doctor">Médico (requiere verificación)</option>
+                      <option value="admin">Administrador</option>
+                    </select>
+                    @if (user.role !== 'admin') {
+                      <button class="btn-secondary" (click)="setPortalUserActive(user, !user.is_active)" [disabled]="portalBusy || user.id === portalProfile.id">
+                        {{ user.is_active ? 'Dar de baja' : 'Reactivar' }}
+                      </button>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          </article>
+
+          <article class="portal-card">
+            <h3>Solicitudes de médicos</h3>
+            @if (doctorCredentials.length === 0) { <p>No hay solicitudes registradas.</p> }
+            @for (credential of doctorCredentials; track credential.doctor_uid) {
+              <div class="portal-credential-row">
+                <strong>{{ credential.professional_license }} · {{ credential.specialty || 'Sin especialidad indicada' }}</strong>
+                <span>Estado: {{ credential.verification_status }} · {{ credential.institution || 'Institución no indicada' }}</span>
+                @if (credential.verification_notes) { <small>{{ credential.verification_notes }}</small> }
+                @if (credential.verification_status === 'pending') {
+                  <button class="btn-primary" (click)="reviewDoctor(credential, 'verified')" [disabled]="portalBusy">Verificar y habilitar</button>
+                  <button class="btn-secondary" (click)="reviewDoctor(credential, 'rejected')" [disabled]="portalBusy">Rechazar</button>
+                }
+              </div>
+            }
+            <p class="portal-muted">Antes de aprobar, comprueba los datos en fuentes oficiales. La aprobación interna no sustituye esa validación.</p>
+          </article>
+
+          <article class="portal-card">
+            <h3>Asignación y permisos clínicos</h3>
+            <label for="assignment-doctor">Médico</label>
+            <select id="assignment-doctor" [ngModel]="selectedDoctorUid" (ngModelChange)="selectDoctorForAssignment($event)" name="assignmentDoctor">
+              <option value="">Selecciona un médico verificado</option>
+              @for (doctor of doctorsForAssignment; track doctor.id) {
+                @if (isVerifiedDoctor(doctor.id)) {
+                  <option [value]="doctor.id">{{ doctor.first_name }} {{ doctor.last_name }}</option>
+                }
+              }
+            </select>
+            <div class="portal-list">
+              @for (patient of patientsForAssignment; track patient.id) {
+                <label class="portal-check-row">
+                  <input type="checkbox" [checked]="selectedPatientUids.includes(patient.id)" (change)="togglePatientAssignment(patient.id, $any($event.target).checked)" />
+                  <span>{{ patient.first_name }} {{ patient.last_name }} · {{ patient.email }}</span>
+                </label>
+              }
+            </div>
+            <button class="btn-primary" (click)="saveDoctorAssignments()" [disabled]="portalBusy || !selectedDoctorUid">Guardar asignaciones</button>
+          </article>
+
+          <article class="portal-card">
+            <h3>Administrar turnos</h3>
+            <div class="form-group">
+              <label for="turn-code">Código visible</label>
+              <input id="turn-code" [(ngModel)]="turnDraft.ticket_code" name="turnCode" maxlength="24" />
+            </div>
+            <div class="form-group">
+              <label for="turn-patient">Paciente</label>
+              <select id="turn-patient" [(ngModel)]="turnDraft.patient_uid" name="turnPatient">
+                <option value="">Selecciona un paciente</option>
+                @for (patient of patientsForAssignment; track patient.id) {
+                  <option [value]="patient.id">{{ patient.first_name }} {{ patient.last_name }}</option>
+                }
+              </select>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label for="turn-service">Servicio</label><input id="turn-service" [(ngModel)]="turnDraft.service" name="turnService" maxlength="100" /></div>
+              <div class="form-group"><label for="turn-room">Sala</label><input id="turn-room" [(ngModel)]="turnDraft.room" name="turnRoom" maxlength="100" /></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="turn-priority">Prioridad</label>
+                <select id="turn-priority" [(ngModel)]="turnDraft.priority" name="turnPriority">
+                  <option value="alta">Alta</option><option value="media">Media</option><option value="baja">Baja</option>
+                </select>
+              </div>
+              <div class="form-group"><label for="turn-eta">Espera estimada (min)</label><input id="turn-eta" type="number" min="0" max="1440" [(ngModel)]="turnDraft.eta_minutes" name="turnEta" /></div>
+            </div>
+            <button class="btn-primary" (click)="createPortalTurn()" [disabled]="portalBusy || !turnDraft.ticket_code.trim() || !turnDraft.patient_uid">Registrar turno</button>
+            <div class="portal-list portal-turn-list">
+              @for (turn of clinicTurns; track turn.id) {
+                <div class="portal-admin-row">
+                  <div><strong>{{ turn.ticket_code }} · {{ turn.service }}</strong><span>{{ turn.room }} · {{ turn.priority }} · {{ turn.status }}</span></div>
+                  <div class="portal-turn-actions">
+                    <button class="btn-secondary" (click)="changePortalTurn(turn, 'en_espera')">Espera</button>
+                    <button class="btn-secondary" (click)="changePortalTurn(turn, 'en_atencion')">Atender</button>
+                    <button class="btn-secondary" (click)="changePortalTurn(turn, 'finalizado')">Finalizar</button>
+                  </div>
+                </div>
+              }
+            </div>
+          </article>
+        </section>
+      }
     }
   </div>
 }

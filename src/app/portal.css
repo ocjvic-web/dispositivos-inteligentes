@@ -1,0 +1,487 @@
+.portal-wrapper {
+  max-width: 1280px;
+}
+
+.header-auth-actions,
+.portal-user-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-login-button,
+.header-register-button,
+.header-profile-button {
+  min-height: 38px;
+  padding: 8px 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: #fff;
+  color: var(--primary);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.header-register-button {
+  border-color: var(--primary);
+  color: #fff;
+  background: var(--primary);
+}
+
+.header-profile-button {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.patient-data-panel {
+  max-width: 1050px;
+  margin: 0 auto;
+}
+
+.patient-data-panel > h3 {
+  margin-bottom: 8px;
+}
+
+.patient-data-panel .portal-data-row {
+  align-items: flex-start;
+}
+
+.patient-data-panel .portal-data-row p {
+  flex-basis: 100%;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.support-grid {
+  grid-template-columns: minmax(250px, 0.8fr) minmax(0, 1.5fr);
+}
+
+.portal-user-actions select {
+  max-width: 230px;
+}
+
+.portal-login-card,
+.portal-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  padding: 22px;
+}
+
+.portal-login-card {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.portal-auth-form {
+  display: grid;
+  gap: 12px;
+}
+
+.portal-auth-form .form-row {
+  align-items: start;
+}
+
+.portal-auth-form .form-group {
+  margin-bottom: 0;
+}
+
+.portal-auth-form .btn-primary {
+  justify-self: start;
+}
+
+.portal-auth-switch,
+.portal-terms-row {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.portal-link-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.portal-link-button:disabled {
+  color: var(--ink-soft);
+  cursor: not-allowed;
+}
+
+.portal-role-choice {
+  display: flex;
+  gap: 8px;
+  margin: 18px 0;
+}
+
+.portal-role-choice button {
+  min-width: 120px;
+  padding: 10px 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.portal-role-choice button.selected {
+  border-color: var(--primary);
+  background: #eaf2ff;
+  color: var(--primary);
+}
+
+.portal-condition-fieldset {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.portal-condition-fieldset legend {
+  padding: 0 5px;
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+.portal-check-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.portal-check-row input {
+  width: auto;
+  min-width: 18px;
+  min-height: 18px;
+}
+
+.portal-doctor-fields {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-alt);
+}
+
+.portal-doctor-fields > p {
+  margin: 0 0 4px;
+}
+
+.portal-terms-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.portal-terms-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(7, 17, 36, 0.62);
+}
+
+.portal-terms-dialog {
+  width: min(680px, 100%);
+  max-height: min(82dvh, 820px);
+  display: flex;
+  flex-direction: column;
+  padding: 22px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+}
+
+.portal-terms-dialog h3 {
+  margin: 0 0 6px;
+}
+
+.portal-terms-dialog > p {
+  margin: 0 0 12px;
+}
+
+.portal-terms-content {
+  min-height: 140px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 12px 0 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.portal-terms-content h4 {
+  margin: 16px 0 4px;
+}
+
+.portal-terms-content p {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.portal-terms-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.doctor-application-status {
+  max-width: 760px;
+  margin: 18px auto;
+}
+
+.portal-session-bar {
+  margin-bottom: 18px;
+}
+
+.portal-notice,
+.portal-status {
+  margin: 14px 0;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+}
+
+.portal-notice {
+  border: 1px solid #f1c7c7;
+  color: #842626;
+  background: #fff3f3;
+  overflow-wrap: anywhere;
+}
+
+.portal-status {
+  border: 1px solid #b8e4c9;
+  color: #155d35;
+  background: #effaf2;
+}
+
+.portal-grid {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.8fr) minmax(0, 1.6fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.portal-grid > .portal-card {
+  min-width: 0;
+}
+
+.portal-grid > .portal-card:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+.admin-portal-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-portal-grid > .portal-card:nth-child(3) {
+  grid-column: auto;
+}
+
+.portal-card h3 {
+  margin: 0 0 12px;
+}
+
+.portal-card h4 {
+  margin: 20px 0 10px;
+}
+
+.portal-muted {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.portal-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.portal-list-item {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  padding: 12px;
+  color: var(--ink);
+  background: var(--surface-alt);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+
+.portal-list-item.selected,
+.portal-list-item:hover {
+  border-color: var(--primary-2);
+  background: #eef5ff;
+}
+
+.portal-list-item span,
+.portal-admin-row span,
+.portal-credential-row span {
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+  overflow-wrap: anywhere;
+}
+
+.portal-data-row,
+.portal-admin-row,
+.portal-credential-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.portal-admin-row > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.portal-credential-row {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.portal-check-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.portal-check-row input {
+  width: auto;
+}
+
+.portal-chat-card {
+  display: grid;
+  gap: 10px;
+}
+
+.portal-chat-messages {
+  min-height: 160px;
+  max-height: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--surface-alt);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.portal-message {
+  max-width: 85%;
+  align-self: flex-start;
+  padding: 10px 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+
+.portal-message.own {
+  align-self: flex-end;
+  background: #eaf2ff;
+}
+
+.portal-message small {
+  color: var(--ink-soft);
+}
+
+.portal-message p {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+}
+
+.portal-message img {
+  display: block;
+  max-width: min(100%, 360px);
+  max-height: 320px;
+  margin-top: 8px;
+  border-radius: 8px;
+}
+
+.portal-chat-card textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  font: inherit;
+}
+
+.portal-file-label {
+  display: grid;
+  gap: 6px;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.portal-turn-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+@media (max-width: 800px) {
+  .portal-grid,
+  .admin-portal-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .portal-grid > .portal-card:nth-child(3),
+  .admin-portal-grid > .portal-card:nth-child(3) {
+    grid-column: auto;
+  }
+
+  .portal-auth-form .form-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 840px) {
+  .header-auth-actions,
+  .header-profile-button {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .portal-login-card,
+  .portal-terms-dialog {
+    padding: 16px;
+  }
+
+  .portal-role-choice button {
+    flex: 1;
+  }
+
+  .portal-terms-actions {
+    flex-direction: column-reverse;
+  }
+}

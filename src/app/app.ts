@@ -2,11 +2,43 @@
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { environment } from '../environments/environment';
+import {
+  ClinicalConversation,
+  ClinicalMessage,
+  ClinicalMessageType,
+  ClinicalPortalService,
+  ClinicTurn,
+  DoctorCredentials,
+  PortalProfile,
+  PortalRegistration,
+  PortalRole,
+  SupportConversation,
+  SupportMessage,
+} from './clinical-portal.service';
 import Fuse from 'fuse.js';
 
 export type EstadoTarea = 'pendiente' | 'en_progreso' | 'completada' | 'cancelada';
 export type Prioridad = 'alta' | 'media' | 'baja';
-type VistaActiva = 'inicio' | 'dashboard' | 'wearable' | 'webos' | 'tvwall' | 'admin' | 'contacto' | 'estadisticas';
+type VistaActiva =
+  | 'inicio'
+  | 'dashboard'
+  | 'wearable'
+  | 'webos'
+  | 'tvwall'
+  | 'admin'
+  | 'contacto'
+  | 'estadisticas'
+  | 'patient-reports'
+  | 'patient-vitals'
+  | 'patient-history'
+  | 'patient-profile'
+  | 'patient-consult'
+  | 'doctor-chats'
+  | 'support';
+interface NavigationItem {
+  label: string;
+  vista: VistaActiva;
+}
 type RolAdministrador = 'superadmin' | 'operador' | 'visor';
 type EstadoUsuario = 'activo' | 'bloqueado';
 type EstadoTurno = 'en_espera' | 'en_atencion' | 'finalizado';
@@ -107,11 +139,16 @@ const wearablePlaceholder: WearableDevice = {
   standalone: true,
   imports: [CommonModule, FormsModule],
   templateUrl: './app.html',
-  styleUrl: './app.css'
+  styleUrls: ['./app.css', './portal.css']
 })
 export class App implements OnInit, OnDestroy {
   private readonly adminTokenStorageKey = 'biomedica.admin.token';
   private readonly tasksStorageKey = 'biomedica.dashboard.tasks.v2';
+  private readonly clinicalPortal = new ClinicalPortalService(
+    (...args) => window.fetch(...args),
+    `${environment.apiUrl}/config.json`,
+    `${environment.apiUrl}/api/core/reports`,
+  );
   private readonly routeMap: Record<VistaActiva, string> = {
     inicio: '/',
     dashboard: '/dashboard',
@@ -121,6 +158,13 @@ export class App implements OnInit, OnDestroy {
     admin: '/admin',
     contacto: '/contacto',
     estadisticas: '/estadisticas',
+    'patient-reports': '/reportes',
+    'patient-vitals': '/signos-vitales',
+    'patient-history': '/historial',
+    'patient-profile': '/perfil',
+    'patient-consult': '/mi-consulta',
+    'doctor-chats': '/chats',
+    support: '/soporte',
   };
 
   vistaActiva: VistaActiva = 'inicio';
@@ -161,6 +205,140 @@ export class App implements OnInit, OnDestroy {
   adminSession: SesionAdministrador | null = null;
   adminUsers: UsuarioAdministrador[] = [];
   turnosAtencion: TurnoAtencion[] = [];
+  portalProfile: PortalProfile | null = null;
+  supportConversations: SupportConversation[] = [];
+  supportMessages: SupportMessage[] = [];
+  selectedSupportConversationId = '';
+  supportMessageDraft = '';
+  portalReady = false;
+  portalError = '';
+  portalStatus = '';
+  portalLogin = { email: '', password: '' };
+  portalAuthMode: 'login' | 'register' = 'login';
+  portalRegistrationRole: 'patient' | 'doctor' = 'patient';
+  portalRegistration: PortalRegistration & {
+    confirmPassword: string;
+    termsAccepted: boolean;
+  } = {
+    role: 'patient',
+    firstName: '',
+    lastName: '',
+    dateOfBirth: '',
+    chronicConditions: [],
+    otherChronicCondition: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    termsAccepted: false,
+    professionalLicense: '',
+    specialty: '',
+    specialtyLicense: '',
+    institution: '',
+    contactPhone: '',
+  };
+  portalPasswordVisible = false;
+  portalTermsOpen = false;
+  portalTermsReadToEnd = false;
+  portalTermsAcceptedInDialog = false;
+  readonly portalChronicConditionOptions = [
+    'Hipertensión arterial',
+    'Diabetes tipo 2',
+    'Asma',
+    'Enfermedad cardiovascular',
+    'Enfermedad renal crónica',
+    'Colesterol alto',
+    'Enfermedad tiroidea',
+    'EPOC',
+    'Artritis',
+    'Cáncer',
+    'Otra',
+  ];
+  readonly portalTermsSections = [
+    {
+      title: '1. Aceptación y alcance',
+      body: 'Estos términos regulan el uso de BioMedica, una aplicación de seguimiento personal de salud. Al crear una cuenta confirmas que leíste y aceptas estas condiciones, incluido el tratamiento de datos personales y de salud descrito aquí. Si no estás de acuerdo, no crees una cuenta ni uses las funciones que requieren acceso.',
+    },
+    {
+      title: '2. Funciones y finalidad',
+      body: 'BioMedica permite consultar y registrar mediciones, vincular dispositivos compatibles, organizar recordatorios de medicación y medición, y crear reportes de malestares. La información se ofrece para ayudarte a organizar y consultar tus propios datos de salud y, cuando corresponda, facilitar su consulta por personal autorizado asignado a tu atención.',
+    },
+    {
+      title: '3. No es un servicio médico ni de emergencia',
+      body: 'BioMedica no diagnostica enfermedades, no prescribe ni modifica tratamientos, y no sustituye la valoración de un profesional de salud. Las mediciones de teléfonos y dispositivos pueden ser inexactas, incompletas o retrasarse. No uses la aplicación para decidir por tu cuenta suspender medicamentos o retrasar atención. Ante síntomas graves o una emergencia, contacta inmediatamente a los servicios de emergencia de tu localidad o a un profesional.',
+    },
+    {
+      title: '4. Cuenta y datos proporcionados',
+      body: 'Debes proporcionar datos correctos y mantener actualizada la información que registres. Eres responsable de proteger tu contraseña, cerrar sesión en dispositivos compartidos y avisar al administrador si sospechas un acceso no autorizado. No uses la cuenta de otra persona ni ingreses datos de terceros sin autorización. Si eres menor de edad, usa el servicio con la autorización y supervisión de tu madre, padre o tutor.',
+    },
+    {
+      title: '5. Información personal y de salud',
+      body: 'Para operar la aplicación se pueden tratar tu nombre, correo, fecha de nacimiento, padecimientos que declares, ritmo cardiaco, oxigenación, temperatura cuando el dispositivo la proporcione, fechas de medición, dispositivo de origen, recordatorios, malestares, descripciones, prioridades de reportes y datos técnicos necesarios para la conexión. Autorizas expresamente su tratamiento para autenticarte, mostrar tus registros, generar recordatorios, atender reportes y prestar las funciones que solicites; no se venden para publicidad. Las cuentas autorizadas de profesionales solo pueden consultar información de pacientes que tengan asignados conforme a la configuración del servicio.',
+    },
+    {
+      title: '6. Almacenamiento y proveedores',
+      body: 'La aplicación usa Supabase para autenticación y datos relacionales, y servicios de Render y Firebase/Firestore para componentes de la API y reportes. La comunicación con dispositivos puede usar Bluetooth y los permisos del sistema operativo. Estos proveedores procesan datos para prestar el servicio de acuerdo con sus funciones y configuraciones. Ningún sistema conectado a Internet puede garantizar disponibilidad o seguridad absoluta.',
+    },
+    {
+      title: '7. Permisos, dispositivos y notificaciones',
+      body: 'Bluetooth, sensores y notificaciones requieren permisos del dispositivo. Puedes desactivarlos desde los ajustes del sistema, pero algunas funciones dejarán de operar. El ahorro de batería, la falta de conexión, las restricciones del fabricante o la desinstalación pueden impedir o retrasar recordatorios. La app no garantiza que una notificación llegue a una hora determinada; mantén tus propios medios de control de tratamientos.',
+    },
+    {
+      title: '8. Uso permitido y disponibilidad',
+      body: 'Usa BioMedica de manera lícita y no intentes acceder a cuentas, datos o sistemas ajenos, interferir con el servicio, cargar contenido malicioso o eludir controles de seguridad. Las funciones pueden cambiar, suspenderse o no estar disponibles por mantenimiento, fallos de red, dispositivos incompatibles o servicios de terceros.',
+    },
+    {
+      title: '9. Conservación y solicitudes',
+      body: 'Los datos se conservan mientras sean necesarios para prestar el servicio y mantener la cuenta, sujetos a obligaciones aplicables y copias de respaldo de los proveedores. La eliminación de la cuenta y el ejercicio de derechos de acceso, rectificación, cancelación u oposición, cuando procedan, pueden requerir asistencia del administrador de la plataforma. Contacta al administrador que te proporcionó el acceso para presentar la solicitud; algunas copias de respaldo pueden conservarse durante el ciclo técnico de eliminación o por obligaciones legales.',
+    },
+    {
+      title: '10. Propiedad intelectual y cambios',
+      body: 'La aplicación, su diseño y sus materiales pertenecen a sus titulares o licenciantes y no se transfieren al usuario. Podemos actualizar funciones o estos términos para reflejar cambios técnicos, legales o del servicio. Si una nueva versión requiere consentimiento, se solicitará nuevamente antes de continuar usando la función correspondiente.',
+    },
+    {
+      title: '11. Responsabilidad',
+      body: 'En la medida permitida por la legislación aplicable, BioMedica se proporciona como herramienta de apoyo y no garantiza que las mediciones, sincronizaciones, alertas o reportes estén siempre disponibles o libres de errores. Nada en estos términos limita derechos irrenunciables del consumidor o responsabilidades que la ley no permita excluir.',
+    },
+    {
+      title: '12. Legislación y contacto',
+      body: 'Estos términos se interpretan conforme a la legislación aplicable, sin limitar los derechos que te correspondan en tu lugar de residencia. Para consultas, correcciones o solicitudes sobre tu cuenta y tus datos, contacta al administrador de la plataforma BioMedica que te proporcionó el acceso.',
+    },
+  ];
+  portalDoctors: PortalProfile[] = [];
+  portalPatients: PortalProfile[] = [];
+  portalReports: Record<string, unknown>[] = [];
+  portalMeasurements: Record<string, unknown>[] = [];
+  portalConversations: ClinicalConversation[] = [];
+  portalMessages: ClinicalMessage[] = [];
+  selectedPatientUid = '';
+  selectedConversationId = '';
+  portalBusy = false;
+  messageDraft = '';
+  messageType: ClinicalMessageType = 'chat';
+  selectedImage: File | null = null;
+  signedImages: Record<string, string> = {};
+  doctorCredentials: DoctorCredentials[] = [];
+  portalUsers: PortalProfile[] = [];
+  doctorAssignments: { doctor_uid: string; patient_uid: string }[] = [];
+  clinicTurns: ClinicTurn[] = [];
+  selectedDoctorUid = '';
+  selectedPatientUids: string[] = [];
+  doctorRequest = {
+    professionalLicense: '',
+    specialty: '',
+    specialtyLicense: '',
+    institution: '',
+    contactPhone: '',
+  };
+  turnDraft = {
+    ticket_code: '',
+    patient_uid: '',
+    service: 'Consulta general',
+    room: 'Consultorio 1',
+    priority: 'media' as Prioridad,
+    status: 'en_espera' as ClinicTurn['status'],
+    eta_minutes: 0,
+  };
+  turnosPublicError = '';
   nuevoUsuario = {
     displayName: '',
     username: '',
@@ -230,6 +408,62 @@ export class App implements OnInit, OnDestroy {
     this.busquedaResultados = [];
   }
 
+  get navigationItems(): NavigationItem[] {
+    const role = this.portalProfile?.role;
+    if (!role) {
+      return [
+        { label: 'Inicio', vista: 'inicio' },
+        { label: 'Estadísticas', vista: 'estadisticas' },
+        { label: 'Contacto', vista: 'contacto' },
+      ];
+    }
+
+    if (role === 'patient') {
+      if (this.portalProfile?.doctor_application_status) {
+        return [
+          { label: 'Inicio', vista: 'inicio' },
+          { label: 'Perfil', vista: 'patient-profile' },
+        ];
+      }
+      return [
+        { label: 'Inicio', vista: 'inicio' },
+        { label: 'Reportes', vista: 'patient-reports' },
+        { label: 'Mis signos vitales', vista: 'patient-vitals' },
+        { label: 'Historial', vista: 'patient-history' },
+        { label: 'Perfil', vista: 'patient-profile' },
+        { label: 'Mi consulta', vista: 'patient-consult' },
+      ];
+    }
+
+    if (role === 'doctor') {
+      return [
+        { label: 'Inicio', vista: 'inicio' },
+        { label: 'Wearables', vista: 'wearable' },
+        { label: 'Smart TV', vista: 'tvwall' },
+        { label: 'Dashboard', vista: 'dashboard' },
+        { label: 'Conexiones', vista: 'webos' },
+        { label: 'Chats', vista: 'doctor-chats' },
+      ];
+    }
+
+    return [
+      { label: 'Inicio', vista: 'inicio' },
+      { label: 'Dashboard', vista: 'dashboard' },
+      { label: 'Wearables', vista: 'wearable' },
+      { label: 'Smart TV', vista: 'tvwall' },
+      { label: 'Conexiones', vista: 'webos' },
+      { label: 'Estadísticas', vista: 'estadisticas' },
+      { label: 'Contacto', vista: 'contacto' },
+      { label: 'Administración', vista: 'admin' },
+      { label: 'Soporte a usuarios', vista: 'support' },
+    ];
+  }
+
+  openPortalAuth(mode: 'login' | 'register'): void {
+    this.setPortalAuthMode(mode);
+    this.navegar('admin');
+  }
+
   private svgData(title: string, subtitle: string, leftColor: string, rightColor: string): string {
     const svg = `
       <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
@@ -253,12 +487,51 @@ export class App implements OnInit, OnDestroy {
   }
 
   navegar(vista: VistaActiva) {
+    if (!this.canAccessView(vista)) {
+      if (!this.portalProfile) {
+        this.portalStatus = 'Inicia sesión para acceder a esta sección.';
+        vista = 'admin';
+      } else {
+        vista = this.portalProfile.role === 'patient'
+          ? 'patient-profile'
+          : this.portalProfile.role === 'doctor' ? 'dashboard' : 'admin';
+      }
+    }
     this.vistaActiva = vista;
     this.menuAbierto = false;
     this.sincronizarRuta();
+    if (vista === 'support' && this.portalProfile) {
+      void this.refreshPortalData();
+    }
     if (vista !== 'tvwall') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
+  }
+
+  private canAccessView(vista: VistaActiva): boolean {
+    const role = this.portalProfile?.role;
+    const publicViews: VistaActiva[] = ['inicio', 'estadisticas', 'contacto', 'admin'];
+    if (!role) return publicViews.includes(vista);
+
+    if (role === 'patient') {
+      const patientViews: VistaActiva[] = [
+        'inicio', 'patient-reports', 'patient-vitals', 'patient-history',
+        'patient-profile', 'patient-consult', 'support',
+      ];
+      if (this.portalProfile?.doctor_application_status) {
+        return ['inicio', 'patient-profile', 'support'].includes(vista);
+      }
+      return patientViews.includes(vista);
+    }
+
+    if (role === 'doctor') {
+      return [
+        'inicio', 'dashboard', 'wearable', 'tvwall', 'webos', 'doctor-chats',
+        'support',
+      ].includes(vista);
+    }
+
+    return true;
   }
 
   // Hero Slider
@@ -279,13 +552,13 @@ export class App implements OnInit, OnDestroy {
     this.sincronizarRuta();
     this.cargarTareas();
     this.sliderInterval = setInterval(() => { this.heroSlide = (this.heroSlide + 1) % this.heroSlides.length; }, 5500);
-    await this.cargarSesionAdmin();
+    await this.initializePortal();
     await Promise.all([this.cargarEstadoPuente(), this.cargarTurnosTv(), this.verificarMicroappsFlutter()]);
     this.bridgeInterval = setInterval(() => {
       void this.cargarEstadoPuente();
       void this.cargarTurnosTv();
-      if (this.adminToken) {
-        void this.cargarPanelAdmin(false);
+      if (this.portalProfile && this.selectedConversationId) {
+        void this.loadDoctorMessages(this.selectedConversationId);
       }
     }, 5000);
   }
@@ -357,6 +630,13 @@ export class App implements OnInit, OnDestroy {
     if (pathname === '/admin') return 'admin';
     if (pathname === '/contacto') return 'contacto';
     if (pathname === '/estadisticas') return 'estadisticas';
+    if (pathname === '/reportes') return 'patient-reports';
+    if (pathname === '/signos-vitales') return 'patient-vitals';
+    if (pathname === '/historial') return 'patient-history';
+    if (pathname === '/perfil') return 'patient-profile';
+    if (pathname === '/mi-consulta') return 'patient-consult';
+    if (pathname === '/chats') return 'doctor-chats';
+    if (pathname === '/soporte') return 'support';
     return 'inicio';
   }
 
@@ -522,31 +802,43 @@ export class App implements OnInit, OnDestroy {
   async cargarTurnosTv(): Promise<void> {
     try {
       const data = await this.requestJson<{
-        queue: TurnoAtencion[];
-        currentTurn: TurnoAtencion | null;
+        queue: {
+          ticket_code: string;
+          service: string;
+          room: string;
+          status: 'en_espera' | 'en_atencion';
+          eta_minutes: number;
+          updated_at: string;
+        }[];
+        currentTurn: {
+          ticket_code: string;
+          service: string;
+          room: string;
+          status: 'en_espera' | 'en_atencion';
+          eta_minutes: number;
+          updated_at: string;
+        } | null;
       }>('/api/tv-feed');
 
-      const cola = [...data.queue];
-      if (data.currentTurn) {
-        cola.unshift(data.currentTurn);
+      const queue = [...data.queue];
+      if (data.currentTurn && !queue.some((turn) => turn.ticket_code === data.currentTurn?.ticket_code)) {
+        queue.unshift(data.currentTurn);
       }
-      this.turnosAtencion = cola;
-    } catch {
-      if (this.turnosAtencion.length === 0) {
-        this.turnosAtencion = [
-          {
-            id: 'fallback-1',
-            codigo: 'A-001',
-            paciente: 'Paciente de demostracion',
-            servicio: 'Cardiologia',
-            sala: 'Modulo A',
-            prioridad: 'alta',
-            estado: 'en_atencion',
-            etaMin: 0,
-            updatedAt: new Date().toISOString(),
-          },
-        ];
-      }
+      this.turnosAtencion = queue.map((turn) => ({
+        id: turn.ticket_code,
+        codigo: turn.ticket_code,
+        paciente: '',
+        servicio: turn.service,
+        sala: turn.room,
+        prioridad: 'media',
+        estado: turn.status,
+        etaMin: turn.eta_minutes,
+        updatedAt: turn.updated_at,
+      }));
+      this.turnosPublicError = '';
+    } catch (error) {
+      this.turnosAtencion = [];
+      this.turnosPublicError = error instanceof Error ? error.message : 'No se pudo consultar la cola de turnos.';
     }
   }
 
@@ -682,6 +974,772 @@ export class App implements OnInit, OnDestroy {
       finalizado: '#16a34a',
     };
     return colores[estado];
+  }
+
+  async initializePortal(): Promise<void> {
+    try {
+      this.portalProfile = await this.clinicalPortal.initialize();
+      if (this.portalProfile) {
+        await this.refreshPortalData();
+        if (!this.canAccessView(this.vistaActiva)) {
+          this.navegar(this.portalProfile.role === 'patient'
+            ? 'patient-profile'
+            : this.portalProfile.role === 'doctor' ? 'dashboard' : 'admin');
+        }
+      } else if (!this.canAccessView(this.vistaActiva)) {
+        this.navegar('admin');
+      }
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo inicializar el portal clínico.';
+      if (!this.portalProfile && !this.canAccessView(this.vistaActiva)) {
+        this.portalStatus = 'Inicia sesión para acceder a esta sección.';
+        this.navegar('admin');
+      }
+    } finally {
+      this.portalReady = true;
+    }
+  }
+
+  async signInPortal(): Promise<void> {
+    this.portalBusy = true;
+    this.portalError = '';
+    this.portalStatus = '';
+    try {
+      const profile = await this.clinicalPortal.signIn(
+        this.portalLogin.email,
+        this.portalLogin.password,
+      );
+      this.portalLogin.password = '';
+      this.portalProfile = profile;
+      await this.refreshPortalData();
+      this.navegar(profile.role === 'patient'
+        ? 'patient-profile'
+        : profile.role === 'doctor' ? 'dashboard' : 'admin');
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo iniciar sesión.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  setPortalAuthMode(mode: 'login' | 'register'): void {
+    this.portalAuthMode = mode;
+    this.portalError = '';
+    this.portalStatus = '';
+  }
+
+  setPortalRegistrationRole(role: 'patient' | 'doctor'): void {
+    this.portalRegistrationRole = role;
+    this.portalRegistration.role = role;
+    this.portalError = '';
+  }
+
+  togglePortalCondition(condition: string, selected: boolean): void {
+    const conditions = new Set(this.portalRegistration.chronicConditions);
+    if (selected) conditions.add(condition);
+    else conditions.delete(condition);
+    this.portalRegistration.chronicConditions = [...conditions];
+  }
+
+  openPortalTerms(): void {
+    this.portalTermsOpen = true;
+    this.portalTermsReadToEnd = false;
+    this.portalTermsAcceptedInDialog = false;
+    this.portalRegistration.termsAccepted = false;
+  }
+
+  onPortalTermsScroll(event: Event): void {
+    const element = event.target as HTMLElement;
+    if (element.scrollHeight - element.scrollTop - element.clientHeight <= 24) {
+      this.portalTermsReadToEnd = true;
+    }
+  }
+
+  acceptPortalTerms(): void {
+    if (!this.portalTermsReadToEnd || !this.portalTermsAcceptedInDialog) return;
+    this.portalRegistration.termsAccepted = true;
+    this.portalTermsOpen = false;
+  }
+
+  closePortalTerms(): void {
+    this.portalTermsOpen = false;
+    this.portalRegistration.termsAccepted = false;
+  }
+
+  get portalDateOfBirthMax(): string {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  }
+
+  get doctorApplicationStatusLabel(): string {
+    switch (this.portalProfile?.doctor_application_status) {
+      case 'pending':
+        return 'Pendiente de revisión administrativa';
+      case 'verified':
+        return 'Solicitud aprobada. El acceso clínico requiere iniciar sesión nuevamente.';
+      case 'rejected':
+        return 'Solicitud no aprobada';
+      default:
+        return '';
+    }
+  }
+
+  async registerPortal(): Promise<void> {
+    this.portalError = '';
+    this.portalStatus = '';
+    const validation = this.validatePortalRegistration();
+    if (validation) {
+      this.portalError = validation;
+      return;
+    }
+
+    this.portalBusy = true;
+    try {
+      const { confirmPassword: _confirmPassword, termsAccepted: _termsAccepted, ...registration } =
+        this.portalRegistration;
+      const profile = await this.clinicalPortal.register({
+        ...registration,
+        role: this.portalRegistrationRole,
+      });
+      this.portalLogin.email = registration.email;
+      this.portalLogin.password = '';
+      this.portalRegistration.password = '';
+      this.portalRegistration.confirmPassword = '';
+      this.portalAuthMode = 'login';
+      if (!profile) {
+        this.portalStatus = this.portalRegistrationRole === 'doctor'
+          ? 'Te enviamos un correo para confirmar tu cuenta. Tu solicitud médica quedó registrada y permanecerá pendiente hasta que un administrador revise y apruebe tus datos.'
+          : 'Te enviamos un correo para confirmar tu cuenta. Confírmalo antes de iniciar sesión.';
+        return;
+      }
+      this.portalProfile = profile;
+      await this.refreshPortalData();
+      this.navegar(profile.role === 'patient'
+        ? 'patient-profile'
+        : profile.role === 'doctor' ? 'dashboard' : 'admin');
+      this.portalStatus = profile.doctor_application_status
+        ? 'Tu solicitud médica quedó registrada y está pendiente de revisión administrativa. No tendrás acceso clínico hasta recibir aprobación.'
+        : 'Tu cuenta se creó correctamente.';
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo crear la cuenta.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  async requestPortalPasswordReset(): Promise<void> {
+    this.portalError = '';
+    this.portalStatus = '';
+    const email = this.portalLogin.email.trim();
+    if (!this.isValidPortalEmail(email)) {
+      this.portalError = 'Escribe un correo válido para enviarte el enlace.';
+      return;
+    }
+    this.portalBusy = true;
+    try {
+      await this.clinicalPortal.requestPasswordReset(email);
+      this.portalStatus = 'Si existe una cuenta con ese correo, recibirás instrucciones para cambiar la contraseña.';
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo solicitar el cambio de contraseña.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  private validatePortalRegistration(): string | null {
+    const registration = this.portalRegistration;
+    const firstNameLength = Array.from(registration.firstName.trim()).length;
+    const lastNameLength = Array.from(registration.lastName.trim()).length;
+    if (firstNameLength < 2) return 'Escribe tu nombre.';
+    if (firstNameLength > 100) return 'El nombre excede la longitud permitida.';
+    if (lastNameLength < 2) return 'Escribe tus apellidos.';
+    if (lastNameLength > 150) return 'Los apellidos exceden la longitud permitida.';
+    if (!registration.dateOfBirth) return 'Selecciona tu fecha de nacimiento.';
+    if (registration.dateOfBirth > this.portalDateOfBirthMax) {
+      return 'La fecha de nacimiento no puede ser futura.';
+    }
+    if (!this.isValidPortalEmail(registration.email)) return 'Ingresa un correo válido.';
+    const passwordLength = Array.from(registration.password).length;
+    if (passwordLength < 8) return 'Usa al menos 8 caracteres.';
+    if (passwordLength > 30) return 'La contraseña excede la longitud permitida.';
+    if (!registration.confirmPassword) return 'Confirma tu contraseña.';
+    if (registration.confirmPassword !== registration.password) {
+      return 'Las contraseñas no coinciden.';
+    }
+    if (!registration.termsAccepted) return 'Lee y acepta los términos para continuar.';
+
+    if (this.portalRegistrationRole === 'doctor') {
+      const licenseLength = Array.from(registration.professionalLicense?.trim() ?? '').length;
+      const specialtyLength = Array.from(registration.specialty?.trim() ?? '').length;
+      const specialtyLicense = registration.specialtyLicense?.trim() ?? '';
+      const institution = registration.institution?.trim() ?? '';
+      const phone = registration.contactPhone?.trim() ?? '';
+      if (licenseLength < 5 || licenseLength > 40) {
+        return 'Escribe una cédula profesional válida (de 5 a 40 caracteres).';
+      }
+      if (specialtyLength < 1 || specialtyLength > 120) {
+        return 'Escribe una especialidad válida.';
+      }
+      if (specialtyLicense && (specialtyLicense.length < 5 || specialtyLicense.length > 40)) {
+        return 'La cédula de especialidad debe tener entre 5 y 40 caracteres.';
+      }
+      if (institution.length > 160) return 'El nombre de la institución excede la longitud permitida.';
+      if (phone && (phone.length < 7 || phone.length > 25)) {
+        return 'El teléfono debe tener entre 7 y 25 caracteres.';
+      }
+    }
+    return null;
+  }
+
+  private isValidPortalEmail(value: string): boolean {
+    const email = value.trim();
+    if (!email || Array.from(email).length > 254) return false;
+    const [localPart, ...domainParts] = email.split('@');
+    const domain = domainParts.join('@');
+    const emailPattern = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$/;
+    return localPart.length <= 64 && domain.length <= 253 && emailPattern.test(email);
+  }
+
+  async signOutPortal(): Promise<void> {
+    this.portalBusy = true;
+    try {
+      await this.clinicalPortal.signOut();
+      this.portalProfile = null;
+      this.portalDoctors = [];
+      this.portalPatients = [];
+      this.portalReports = [];
+      this.portalMeasurements = [];
+      this.portalConversations = [];
+      this.portalMessages = [];
+      this.portalUsers = [];
+      this.clinicTurns = [];
+      this.supportConversations = [];
+      this.supportMessages = [];
+      this.selectedSupportConversationId = '';
+      this.selectedConversationId = '';
+      this.selectedPatientUid = '';
+      this.portalError = '';
+      this.portalStatus = '';
+      this.navegar('inicio');
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo cerrar sesión.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  async refreshPortalData(): Promise<void> {
+    const currentProfile = this.portalProfile;
+    if (!currentProfile) return;
+    const syncWarnings: string[] = [];
+    try {
+      const profile = await this.clinicalPortal.loadProfile(currentProfile.id);
+      this.portalProfile = profile;
+      if (!profile.is_active) {
+        await this.clinicalPortal.signOut();
+        this.portalProfile = null;
+        this.portalDoctors = [];
+        this.portalPatients = [];
+        this.portalReports = [];
+        this.portalMeasurements = [];
+        this.portalConversations = [];
+        this.portalMessages = [];
+        this.portalUsers = [];
+        this.supportConversations = [];
+        this.supportMessages = [];
+        this.portalError = 'Tu cuenta está dada de baja. Se cerró la sesión y tus datos se conservan.';
+        this.navegar('admin');
+        return;
+      }
+      if (profile.role === 'patient' && profile.doctor_application_status) {
+        this.portalDoctors = [];
+        this.portalPatients = [];
+        this.portalReports = [];
+        this.portalMeasurements = [];
+        this.portalConversations = [];
+        this.portalMessages = [];
+        return;
+      }
+      if (profile.role === 'doctor') {
+        const [patients, conversations] = await Promise.all([
+          this.clinicalPortal.loadDoctorPatients(profile.id),
+          this.clinicalPortal.loadDoctorConversations(profile.id),
+        ]);
+        this.portalPatients = patients;
+        const assignedUids = new Set(patients.map((patient) => patient.id));
+        this.portalConversations = conversations;
+        const [reportsResult, measurementsResult] = await Promise.allSettled([
+          this.clinicalPortal.loadAssignedReports(),
+          this.clinicalPortal.loadPatientMeasurements(patients.map((patient) => patient.id)),
+        ]);
+        if (reportsResult.status === 'fulfilled') {
+          this.portalReports = reportsResult.value.filter((report) => {
+            const ownerUid = report['ownerUid'];
+            return typeof ownerUid === 'string' && assignedUids.has(ownerUid);
+          });
+        } else {
+          this.portalReports = [];
+          syncWarnings.push(
+            reportsResult.reason instanceof Error
+              ? `Reportes: ${reportsResult.reason.message}`
+              : 'No se pudieron cargar los reportes.',
+          );
+        }
+        if (measurementsResult.status === 'fulfilled') {
+          this.portalMeasurements = measurementsResult.value;
+        } else {
+          this.portalMeasurements = [];
+          syncWarnings.push(
+            measurementsResult.reason instanceof Error
+              ? `Mediciones: ${measurementsResult.reason.message}`
+              : 'No se pudieron cargar las mediciones.',
+          );
+        }
+        if (this.selectedPatientUid && !assignedUids.has(this.selectedPatientUid)) {
+          this.selectedPatientUid = '';
+          this.selectedConversationId = '';
+          this.portalMessages = [];
+        }
+      } else if (profile.role === 'patient') {
+        const [doctors, conversations, measurementsResult, reportsResult] = await Promise.all([
+          this.clinicalPortal.loadAssignedDoctors(profile.id),
+          this.clinicalPortal.loadPatientConversations(profile.id),
+          this.clinicalPortal.loadPatientMeasurements([profile.id]).then(
+            (value) => ({ status: 'fulfilled' as const, value }),
+            (reason: unknown) => ({ status: 'rejected' as const, reason }),
+          ),
+          this.clinicalPortal.loadAssignedReports().then(
+            (value) => ({ status: 'fulfilled' as const, value }),
+            (reason: unknown) => ({ status: 'rejected' as const, reason }),
+          ),
+        ]);
+        this.portalDoctors = doctors;
+        this.portalConversations = conversations;
+        if (measurementsResult.status === 'fulfilled') {
+          this.portalMeasurements = measurementsResult.value;
+        } else {
+          this.portalMeasurements = [];
+          syncWarnings.push(
+            measurementsResult.reason instanceof Error
+              ? `Signos vitales: ${measurementsResult.reason.message}`
+              : 'No se pudieron cargar los signos vitales.',
+          );
+        }
+        if (reportsResult.status === 'fulfilled') {
+          this.portalReports = reportsResult.value.filter((report) => report['ownerUid'] === profile.id);
+        } else {
+          this.portalReports = [];
+          syncWarnings.push(
+            reportsResult.reason instanceof Error
+              ? `Reportes: ${reportsResult.reason.message}`
+              : 'No se pudieron cargar tus reportes.',
+          );
+        }
+        if (this.selectedConversationId && !conversations.some(
+          (conversation) => conversation.id === this.selectedConversationId,
+        )) {
+          this.selectedConversationId = '';
+          this.portalMessages = [];
+        }
+      } else if (profile.role === 'admin') {
+        const [adminData, turns] = await Promise.all([
+          this.clinicalPortal.loadAdminUsers(),
+          this.clinicalPortal.loadClinicTurns(),
+        ]);
+        this.portalUsers = adminData.profiles;
+        this.doctorCredentials = adminData.credentials;
+        this.doctorAssignments = adminData.assignments;
+        this.clinicTurns = turns;
+      }
+      if (this.vistaActiva === 'support') {
+        this.supportConversations = await this.clinicalPortal.loadSupportConversations();
+        if (this.selectedSupportConversationId && !this.supportConversations.some(
+          (conversation) => conversation.id === this.selectedSupportConversationId,
+        )) {
+          this.selectedSupportConversationId = '';
+          this.supportMessages = [];
+        }
+      }
+      this.portalError = syncWarnings.join(' ');
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudieron sincronizar los datos del portal.';
+    }
+  }
+
+  get selectedSupportStatus(): SupportConversation['status'] | null {
+    return this.supportConversations.find(
+      (conversation) => conversation.id === this.selectedSupportConversationId,
+    )?.status ?? null;
+  }
+
+  get selectedSupportCustomerUid(): string {
+    return this.supportConversations.find(
+      (conversation) => conversation.id === this.selectedSupportConversationId,
+    )?.customer_uid ?? '';
+  }
+
+  supportCustomerName(customerUid: string): string {
+    const customer = this.portalUsers.find((user) => user.id === customerUid);
+    return customer ? `${customer.first_name} ${customer.last_name}` : 'Usuario';
+  }
+
+  async startSupportConversation(): Promise<void> {
+    if (!this.portalProfile || this.portalProfile.role === 'admin' || this.portalBusy) return;
+    this.portalBusy = true;
+    this.portalError = '';
+    try {
+      const conversation = await this.clinicalPortal.createSupportConversation();
+      this.supportConversations = [conversation, ...this.supportConversations];
+      await this.selectSupportConversation(conversation);
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo iniciar el chat de soporte.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  async selectSupportConversation(conversation: SupportConversation): Promise<void> {
+    this.selectedSupportConversationId = conversation.id;
+    this.portalError = '';
+    try {
+      this.supportMessages = await this.clinicalPortal.loadSupportMessages(conversation.id);
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo cargar la conversación de soporte.';
+    }
+  }
+
+  async sendSupportMessage(): Promise<void> {
+    if (!this.selectedSupportConversationId || this.portalBusy) return;
+    this.portalBusy = true;
+    this.portalError = '';
+    try {
+      await this.clinicalPortal.sendSupportMessage(
+        this.selectedSupportConversationId,
+        this.supportMessageDraft,
+      );
+      this.supportMessageDraft = '';
+      this.supportMessages = await this.clinicalPortal.loadSupportMessages(
+        this.selectedSupportConversationId,
+      );
+      await this.refreshPortalData();
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo enviar el mensaje.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  async setSupportConversationStatus(status: SupportConversation['status']): Promise<void> {
+    if (!this.selectedSupportConversationId || this.portalBusy) return;
+    this.portalBusy = true;
+    this.portalError = '';
+    try {
+      await this.clinicalPortal.updateSupportConversationStatus(
+        this.selectedSupportConversationId,
+        status,
+      );
+      await this.refreshPortalData();
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo actualizar la solicitud.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  async selectPatientForDoctor(patient: PortalProfile): Promise<void> {
+    this.selectedPatientUid = patient.id;
+    this.portalError = '';
+    try {
+      const conversation = await this.clinicalPortal.getOrCreateConversation(patient.id);
+      this.selectedConversationId = conversation.id;
+      await this.loadDoctorMessages(conversation.id);
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo abrir la conversación.';
+    }
+  }
+
+  async startPatientChat(doctor: PortalProfile): Promise<void> {
+    this.portalError = '';
+    try {
+      this.messageType = 'chat';
+      this.selectedConversationId = await this.clinicalPortal.startPatientConversation(doctor.id);
+      this.selectedPatientUid = this.portalProfile?.id ?? '';
+      await this.refreshPortalData();
+      await this.loadDoctorMessages(this.selectedConversationId);
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo iniciar el chat.';
+    }
+  }
+
+  async selectPatientConversation(conversation: ClinicalConversation): Promise<void> {
+    this.selectedConversationId = conversation.id;
+    this.selectedPatientUid = conversation.patient_uid;
+    try {
+      await this.loadDoctorMessages(conversation.id);
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo abrir la conversación.';
+    }
+  }
+
+  async loadDoctorMessages(conversationId: string): Promise<void> {
+    try {
+      this.portalMessages = await this.clinicalPortal.loadMessages(conversationId);
+      const entries = await Promise.all(
+        this.portalMessages
+          .filter((message) => message.attachment_path)
+          .map(async (message) => [
+            message.id,
+            await this.clinicalPortal.signedImageUrl(message.attachment_path!),
+          ] as const),
+      );
+      this.signedImages = Object.fromEntries(entries);
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo cargar el chat.';
+    }
+  }
+
+  handleImageSelect(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    this.selectedImage = input.files?.[0] ?? null;
+  }
+
+  async sendDoctorMessage(): Promise<void> {
+    const conversationId = this.selectedConversationId;
+    if (!conversationId || this.portalBusy) return;
+    const body = this.messageDraft.trim();
+    if (!body) {
+      this.portalError = 'Escribe el mensaje antes de enviarlo.';
+      return;
+    }
+    this.portalBusy = true;
+    this.portalError = '';
+    let uploadedPath: string | null = null;
+    try {
+      if (this.selectedImage) {
+        uploadedPath = await this.clinicalPortal.uploadImage(
+          conversationId,
+          this.selectedImage,
+        );
+      }
+      await this.clinicalPortal.sendMessage(
+        conversationId,
+        body,
+        this.messageType,
+        uploadedPath,
+      );
+      this.messageDraft = '';
+      this.selectedImage = null;
+      await this.loadDoctorMessages(conversationId);
+    } catch (error) {
+      if (uploadedPath) {
+        try {
+          await this.clinicalPortal.removeImage(uploadedPath);
+        } catch (cleanupError) {
+          console.error('Could not remove an unattached clinical image:', cleanupError);
+        }
+      }
+      this.portalError = error instanceof Error ? error.message : 'No se pudo enviar el mensaje.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  async submitDoctorCredentials(): Promise<void> {
+    this.portalBusy = true;
+    this.portalError = '';
+    this.portalStatus = '';
+    try {
+      await this.clinicalPortal.submitDoctorCredentials(this.doctorRequest);
+      this.doctorRequest = {
+        professionalLicense: '',
+        specialty: '',
+        specialtyLicense: '',
+        institution: '',
+        contactPhone: '',
+      };
+      this.portalStatus = 'Solicitud recibida; un administrador debe verificarla antes de habilitar atención.';
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo enviar la solicitud.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  async reviewDoctor(credentials: DoctorCredentials, status: 'verified' | 'rejected'): Promise<void> {
+    const notes = window.prompt('Nota de revisión (no reemplaza verificar la cédula en fuentes oficiales):') ?? '';
+    if (!notes && status === 'rejected') return;
+    this.portalBusy = true;
+    this.portalError = '';
+    this.portalStatus = '';
+    try {
+      await this.clinicalPortal.reviewDoctorCredentials(
+        credentials.doctor_uid,
+        status,
+        notes,
+      );
+      await this.refreshPortalData();
+      this.portalStatus = status === 'verified'
+        ? 'Solicitud aprobada. Confirma la verificación profesional antes de asignar pacientes.'
+        : 'Solicitud rechazada.';
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo revisar la solicitud.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  selectDoctorForAssignment(doctorUid: string): void {
+    this.selectedDoctorUid = doctorUid;
+    this.selectedPatientUids = this.doctorAssignments
+      .filter((assignment) => assignment.doctor_uid === doctorUid)
+      .map((assignment) => assignment.patient_uid);
+  }
+
+  togglePatientAssignment(patientUid: string, checked: boolean): void {
+    const selected = new Set(this.selectedPatientUids);
+    if (checked) selected.add(patientUid);
+    else selected.delete(patientUid);
+    this.selectedPatientUids = [...selected];
+  }
+
+  async saveDoctorAssignments(): Promise<void> {
+    if (!this.selectedDoctorUid) return;
+    this.portalBusy = true;
+    this.portalError = '';
+    this.portalStatus = '';
+    try {
+      await this.clinicalPortal.assignPatients(
+        this.selectedDoctorUid,
+        this.selectedPatientUids,
+      );
+      await this.refreshPortalData();
+      this.portalStatus = 'Asignaciones clínicas actualizadas.';
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudieron guardar las asignaciones.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  async setPortalUserRole(user: PortalProfile, role: PortalRole): Promise<void> {
+    this.portalBusy = true;
+    this.portalError = '';
+    this.portalStatus = '';
+    try {
+      await this.clinicalPortal.updateUserRole(user.id, role);
+      await this.refreshPortalData();
+      this.portalStatus = 'Rol actualizado.';
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo actualizar el rol.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  async setPortalUserActive(user: PortalProfile, active: boolean): Promise<void> {
+    this.portalBusy = true;
+    this.portalError = '';
+    this.portalStatus = '';
+    try {
+      await this.clinicalPortal.setUserActive(user.id, active);
+      await this.refreshPortalData();
+      this.portalStatus = active
+        ? 'Cuenta reactivada. El usuario debe iniciar sesión nuevamente.'
+        : 'Cuenta dada de baja. Se conserva su historial clínico y se bloqueó su acceso.';
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo actualizar el estado de la cuenta.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  async createPortalTurn(): Promise<void> {
+    this.portalBusy = true;
+    this.portalError = '';
+    this.portalStatus = '';
+    try {
+      await this.clinicalPortal.createClinicTurn(this.turnDraft);
+      this.turnDraft = {
+        ticket_code: '',
+        patient_uid: '',
+        service: 'Consulta general',
+        room: 'Consultorio 1',
+        priority: 'media',
+        status: 'en_espera',
+        eta_minutes: 0,
+      };
+      await this.refreshPortalData();
+      await this.cargarTurnosTv();
+      this.portalStatus = 'Turno guardado en Supabase.';
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo guardar el turno.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  async changePortalTurn(turn: ClinicTurn, status: ClinicTurn['status']): Promise<void> {
+    this.portalBusy = true;
+    try {
+      await this.clinicalPortal.updateClinicTurn(turn.id, {
+        status,
+        eta_minutes: status === 'en_atencion' ? 0 : turn.eta_minutes,
+      });
+      await this.refreshPortalData();
+      await this.cargarTurnosTv();
+    } catch (error) {
+      this.portalError = error instanceof Error ? error.message : 'No se pudo cambiar el turno.';
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  get reportsForSelectedPatient(): Record<string, unknown>[] {
+    return this.portalReports.filter(
+      (report) => report['ownerUid'] === this.selectedPatientUid,
+    );
+  }
+
+  get measurementsForSelectedPatient(): Record<string, unknown>[] {
+    return this.portalMeasurements.filter((measurement) =>
+      measurement['owner_uid'] === this.selectedPatientUid,
+    );
+  }
+
+  get doctorsForAssignment(): PortalProfile[] {
+    return this.portalUsers.filter((user) => user.role === 'doctor' && user.is_active);
+  }
+
+  get patientsForAssignment(): PortalProfile[] {
+    return this.portalUsers.filter((user) => user.role === 'patient' && user.is_active);
+  }
+
+  get currentDoctorCredentials(): DoctorCredentials | undefined {
+    return this.doctorCredentials.find(
+      (credentials) => credentials.doctor_uid === this.portalProfile?.id,
+    );
+  }
+
+  get selectedDoctorPatient(): PortalProfile | undefined {
+    return this.portalPatients.find((patient) => patient.id === this.selectedPatientUid);
+  }
+
+  isVerifiedDoctor(userId: string): boolean {
+    return this.doctorCredentials.some(
+      (credentials) => credentials.doctor_uid === userId
+        && credentials.verification_status === 'verified',
+    );
+  }
+
+  portalDoctorName(doctorUid: string): string {
+    const doctor = this.portalDoctors.find((item) => item.id === doctorUid);
+    return doctor ? `${doctor.first_name} ${doctor.last_name}` : 'Médico asignado';
+  }
+
+  formatPortalDate(value: unknown): string {
+    if (typeof value !== 'string' && typeof value !== 'number') return 'Fecha no disponible';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? 'Fecha no disponible' : date.toLocaleString();
   }
 
   async cargarSesionAdmin(): Promise<void> {
