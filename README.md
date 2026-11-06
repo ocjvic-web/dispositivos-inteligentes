@@ -58,7 +58,7 @@ Variables de entorno recomendadas en Render:
 
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY` (nunca usar `service_role` en el navegador)
-- `BIOMEDICA_CORE_API_URL` (URL de la API móvil)
+- `BIOMEDICA_CORE_API_URL` (URL de la API móvil; por defecto usa `https://app-biomedica-web.onrender.com`)
 - `PORT` (Render la inyecta normalmente)
 
 Pasos:

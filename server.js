@@ -18,7 +18,8 @@ const sessionSecret = process.env.SESSION_SECRET || '';
 const sessionTtlMs = Number(process.env.SESSION_TTL_MS || 1000 * 60 * 60 * 8);
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabasePublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY || '';
-const coreApiUrl = process.env.BIOMEDICA_CORE_API_URL || '';
+const coreApiUrl = process.env.BIOMEDICA_CORE_API_URL
+  || 'https://app-biomedica-web.onrender.com';
 
 function nowIso() {
   return new Date().toISOString();
