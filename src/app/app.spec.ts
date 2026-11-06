@@ -75,6 +75,7 @@ describe('App', () => {
     app.portalProfile.role = 'doctor';
     expect(app.navigationItems.map((item) => item.label)).toEqual([
       'Inicio',
+      'Reportes clínicos',
       'Wearables',
       'Turnos',
       'Dashboard',
@@ -87,6 +88,9 @@ describe('App', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).not.toContain('Flutter Wearable Biomédico');
     expect(fixture.nativeElement.textContent).toContain('Catálogo de Wearables Biomédicos');
+
+    app.portalProfile.role = 'admin';
+    expect(app.navigationItems.map((item) => item.label)).toContain('Reportes clínicos');
   });
 
   it('renders the task board with persisted task states and no demo widget', () => {

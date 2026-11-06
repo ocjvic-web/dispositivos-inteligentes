@@ -630,7 +630,8 @@
 <!-- ══ VISTA: PORTAL CLÍNICO ══════════════════════════════════════════════ -->
 @if (vistaActiva === 'admin' || vistaActiva === 'patient-reports' || vistaActiva === 'patient-vitals'
   || vistaActiva === 'patient-history' || vistaActiva === 'patient-profile'
-  || vistaActiva === 'patient-consult' || vistaActiva === 'doctor-chats' || vistaActiva === 'support') {
+  || vistaActiva === 'patient-consult' || vistaActiva === 'doctor-chats'
+  || vistaActiva === 'clinical-reports' || vistaActiva === 'support') {
   <div class="admin-wrapper page-wrapper portal-wrapper">
     <div class="page-header">
       <div class="section-tag">Portal clínico</div>
@@ -827,6 +828,45 @@
           </div>
           @if (portalProfile.role !== 'admin') {
             <button class="btn-secondary" (click)="navegar('support')">Solicitar ayuda con mi cuenta</button>
+          }
+        </section>
+      } @else if (vistaActiva === 'clinical-reports') {
+        <section class="portal-card patient-data-panel clinical-reports-panel">
+          <div class="clinical-reports-heading">
+            <div>
+              <div class="section-tag">{{ portalProfile.role === 'admin' ? 'Administración clínica' : 'Atención clínica' }}</div>
+              <h3>Reportes de pacientes</h3>
+            </div>
+            <span class="portal-role-badge">{{ portalReports.length }} reportes</span>
+          </div>
+          <p class="portal-muted">
+            {{ portalProfile.role === 'admin'
+              ? 'Consulta de solo lectura para administración. La atención y el chat corresponden a médicos verificados y asignados.'
+              : 'Reportes de pacientes que tienes asignados. Abre una conversación clínica para dar seguimiento.' }}
+          </p>
+          @if (portalReports.length === 0) {
+            <p>Aún no hay reportes disponibles para esta cuenta.</p>
+          }
+          @for (report of portalReports; track report['id']) {
+            <article class="clinical-report-item">
+              <div class="clinical-report-details">
+                <strong>{{ report['malestar'] ?? report['equipment'] ?? 'Reporte de salud' }}</strong>
+                <span>Paciente: {{ reportPatientName(report) }}</span>
+                <span>Prioridad: {{ report['priority'] ?? 'Sin prioridad' }}</span>
+                <span>Recibido: {{ formatPortalDate(report['createdAt'] ?? report['created_at'] ?? report['timestamp']) }}</span>
+                @if (report['onsetAt']) {
+                  <span>Inicio del malestar: {{ formatPortalDate(report['onsetAt']) }}</span>
+                }
+                @if (report['description']) {
+                  <p>{{ report['description'] }}</p>
+                }
+              </div>
+              @if (portalProfile.role === 'doctor') {
+                <button class="btn-primary" (click)="openReportChat(report)" [disabled]="portalBusy">
+                  Abrir chat con paciente
+                </button>
+              }
+            </article>
           }
         </section>
       } @else if (portalProfile.doctor_application_status) {

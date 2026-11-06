@@ -61,6 +61,46 @@
   white-space: pre-wrap;
 }
 
+.clinical-reports-heading,
+.clinical-report-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.clinical-reports-heading {
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.clinical-reports-heading h3 {
+  margin: 4px 0 0;
+}
+
+.clinical-report-item {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.clinical-report-details {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.clinical-report-details > span {
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.clinical-report-details p {
+  margin: 4px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .support-grid {
   grid-template-columns: minmax(250px, 0.8fr) minmax(0, 1.5fr);
 }

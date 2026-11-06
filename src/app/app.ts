@@ -39,6 +39,7 @@ type VistaActiva =
   | 'patient-profile'
   | 'patient-consult'
   | 'doctor-chats'
+  | 'clinical-reports'
   | 'support';
 interface NavigationItem {
   label: string;
@@ -168,6 +169,7 @@ export class App implements OnInit, OnDestroy {
     'patient-profile': '/perfil',
     'patient-consult': '/mi-consulta',
     'doctor-chats': '/chats',
+    'clinical-reports': '/reportes-clinicos',
     support: '/soporte',
   };
 
@@ -441,6 +443,7 @@ export class App implements OnInit, OnDestroy {
     if (role === 'doctor') {
       return [
         { label: 'Inicio', vista: 'inicio' },
+        { label: 'Reportes clínicos', vista: 'clinical-reports' },
         { label: 'Wearables', vista: 'wearable' },
         { label: 'Turnos', vista: 'tvwall' },
         { label: 'Dashboard', vista: 'dashboard' },
@@ -451,6 +454,7 @@ export class App implements OnInit, OnDestroy {
 
     return [
       { label: 'Inicio', vista: 'inicio' },
+      { label: 'Reportes clínicos', vista: 'clinical-reports' },
       { label: 'Dashboard', vista: 'dashboard' },
       { label: 'Wearables', vista: 'wearable' },
       { label: 'Turnos', vista: 'tvwall' },
@@ -503,7 +507,7 @@ export class App implements OnInit, OnDestroy {
     this.vistaActiva = vista;
     this.menuAbierto = false;
     this.sincronizarRuta();
-    if (vista === 'support' && this.portalProfile) {
+    if ((vista === 'support' || vista === 'clinical-reports') && this.portalProfile) {
       void this.refreshPortalData();
     }
     if (vista !== 'tvwall') {
@@ -530,6 +534,7 @@ export class App implements OnInit, OnDestroy {
     if (role === 'doctor') {
       return [
         'inicio', 'dashboard', 'wearable', 'tvwall', 'webos', 'doctor-chats',
+        'clinical-reports',
         'support', 'patient-profile',
       ].includes(vista);
     }
@@ -662,6 +667,7 @@ export class App implements OnInit, OnDestroy {
     if (pathname === '/perfil') return 'patient-profile';
     if (pathname === '/mi-consulta') return 'patient-consult';
     if (pathname === '/chats') return 'doctor-chats';
+    if (pathname === '/reportes-clinicos') return 'clinical-reports';
     if (pathname === '/soporte') return 'support';
     return 'inicio';
   }
@@ -1584,6 +1590,8 @@ export class App implements OnInit, OnDestroy {
 
   async selectPatientForDoctor(patient: PortalProfile): Promise<void> {
     this.selectedPatientUid = patient.id;
+    this.selectedConversationId = '';
+    this.portalMessages = [];
     this.portalError = '';
     try {
       const conversation = await this.clinicalPortal.getOrCreateConversation(patient.id);
@@ -1834,6 +1842,30 @@ export class App implements OnInit, OnDestroy {
     return this.portalReports.filter(
       (report) => report['ownerUid'] === this.selectedPatientUid,
     );
+  }
+
+  reportPatientName(report: Record<string, unknown>): string {
+    const ownerUid = report['ownerUid'];
+    if (typeof ownerUid !== 'string') return 'Paciente';
+    const profiles = this.portalProfile?.role === 'admin'
+      ? this.portalUsers
+      : this.portalPatients;
+    const patient = profiles.find((profile) => profile.id === ownerUid);
+    return patient ? `${patient.first_name} ${patient.last_name}` : 'Paciente';
+  }
+
+  async openReportChat(report: Record<string, unknown>): Promise<void> {
+    if (this.portalProfile?.role !== 'doctor') return;
+    const ownerUid = report['ownerUid'];
+    const patient = typeof ownerUid === 'string'
+      ? this.portalPatients.find((profile) => profile.id === ownerUid)
+      : undefined;
+    if (!patient) {
+      this.portalError = 'El paciente ya no está entre tus asignaciones.';
+      return;
+    }
+    await this.selectPatientForDoctor(patient);
+    if (this.selectedConversationId) this.navegar('doctor-chats');
   }
 
   get measurementsForSelectedPatient(): Record<string, unknown>[] {
