@@ -2083,6 +2083,15 @@ export class App implements OnInit, OnDestroy {
   ];
   modalVisible = false;
   taskBusy = false;
+  draggedTask: Tarea | null = null;
+  dropTargetStatus: EstadoTarea | null = null;
+  private pointerDrag: {
+    task: Tarea;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    active: boolean;
+  } | null = null;
   tasksLoading = false;
   tasksError = '';
   taskNotice = '';
@@ -2097,6 +2106,84 @@ export class App implements OnInit, OnDestroy {
   get progresoGeneral() { return this.totalTareas === 0 ? 0 : Math.round((this.tareasCompletadas / this.totalTareas) * 100); }
   tareasPorEstado(estado: EstadoTarea): Tarea[] {
     return this.tareas.filter((task) => task.estado === estado);
+  }
+  iniciarArrastre(event: DragEvent, tarea: Tarea): void {
+    if (this.taskBusy) {
+      event.preventDefault();
+      return;
+    }
+    this.draggedTask = tarea;
+    event.dataTransfer?.setData('text/plain', tarea.id);
+    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+  }
+  iniciarArrastrePointer(event: PointerEvent, tarea: Tarea): void {
+    if (this.taskBusy || event.pointerType === 'mouse' || !event.isPrimary) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    if (!(handle instanceof HTMLElement)) return;
+    handle.setPointerCapture?.(event.pointerId);
+    this.pointerDrag = {
+      task: tarea,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false,
+    };
+  }
+  moverArrastrePointer(event: PointerEvent): void {
+    const drag = this.pointerDrag;
+    if (!drag || drag.pointerId !== event.pointerId || this.taskBusy) return;
+    if (!drag.active) {
+      const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY);
+      if (distance < 8) return;
+      drag.active = true;
+      this.draggedTask = drag.task;
+    }
+    event.preventDefault();
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    const column = target?.closest<HTMLElement>('.kanban-column[data-kanban-status]');
+    const status = column?.dataset['kanbanStatus'];
+    this.dropTargetStatus = this.isTaskStatus(status) ? status : null;
+  }
+  soltarArrastrePointer(event: PointerEvent): void {
+    const drag = this.pointerDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    const column = target?.closest<HTMLElement>('.kanban-column[data-kanban-status]');
+    const status = column?.dataset['kanbanStatus'];
+    const task = drag.active && this.isTaskStatus(status) ? drag.task : null;
+    this.limpiarArrastre();
+    if (task && this.isTaskStatus(status)) void this.cambiarEstado(task, status);
+  }
+  cancelarArrastrePointer(event: PointerEvent): void {
+    if (this.pointerDrag?.pointerId === event.pointerId) this.limpiarArrastre();
+  }
+  permitirDrop(event: DragEvent, estado: EstadoTarea): void {
+    if (!this.draggedTask || this.taskBusy) return;
+    event.preventDefault();
+    this.dropTargetStatus = estado;
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  }
+  salirColumna(event: DragEvent): void {
+    const column = event.currentTarget;
+    if (!(column instanceof HTMLElement)) return;
+    if (event.relatedTarget instanceof Node && column.contains(event.relatedTarget)) return;
+    this.dropTargetStatus = null;
+  }
+  soltarTarea(event: DragEvent, estado: EstadoTarea): void {
+    event.preventDefault();
+    const taskId = event.dataTransfer?.getData('text/plain');
+    const tarea = this.tareas.find((task) => task.id === taskId) ?? this.draggedTask;
+    this.limpiarArrastre();
+    if (tarea) void this.cambiarEstado(tarea, estado);
+  }
+  limpiarArrastre(): void {
+    this.pointerDrag = null;
+    this.draggedTask = null;
+    this.dropTargetStatus = null;
+  }
+  private isTaskStatus(value: string | undefined): value is EstadoTarea {
+    return this.taskColumns.some((column) => column.status === value);
   }
   private toTarea(task: DashboardTask): Tarea {
     const profile = this.portalProfile;

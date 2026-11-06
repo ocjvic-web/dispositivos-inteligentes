@@ -340,7 +340,13 @@
     </div>
     <div class="kanban-board">
       @for (column of taskColumns; track column.status) {
-        <section class="kanban-column">
+        <section
+          class="kanban-column"
+          [attr.data-kanban-status]="column.status"
+          [class.kanban-drag-over]="dropTargetStatus === column.status"
+          (dragover)="permitirDrop($event, column.status)"
+          (dragleave)="salirColumna($event)"
+          (drop)="soltarTarea($event, column.status)">
           <header class="kanban-column-header">
             <h3>{{ column.icon }} {{ column.label }}</h3>
             <span>{{ tareasPorEstado(column.status).length }}</span>
@@ -349,10 +355,25 @@
             <div class="kanban-empty">Sin tareas</div>
           }
           @for (tarea of tareasPorEstado(column.status); track tarea.id) {
-            <article class="task-card" [class.task-vencida]="estaVencida(tarea)">
+            <article
+              class="task-card"
+              [class.task-vencida]="estaVencida(tarea)"
+              [class.task-dragging]="draggedTask?.id === tarea.id"
+              [draggable]="!taskBusy"
+              (dragstart)="iniciarArrastre($event, tarea)"
+              (dragend)="limpiarArrastre()">
               <div class="task-title-row">
                 <span class="task-titulo" [class.tachado]="tarea.estado==='completada'">{{ tarea.titulo }}</span>
                 @if (estaVencida(tarea)) { <span class="badge-vencida">⚠ Vencida</span> }
+                <button
+                  type="button"
+                  class="task-drag-handle"
+                  aria-label="Arrastrar tarea"
+                  [disabled]="taskBusy"
+                  (pointerdown)="iniciarArrastrePointer($event, tarea)"
+                  (pointermove)="moverArrastrePointer($event)"
+                  (pointerup)="soltarArrastrePointer($event)"
+                  (pointercancel)="cancelarArrastrePointer($event)">⋮⋮</button>
               </div>
               @if (tarea.descripcion) { <p class="task-desc">{{ tarea.descripcion }}</p> }
               <div class="task-chips">
@@ -362,12 +383,7 @@
                 <span class="chip chip-grey">👤 {{ tarea.asignadoA }}</span>
               </div>
               <div class="task-actions">
-                <label class="sr-only" [for]="'task-status-' + tarea.id">Cambiar estado de {{ tarea.titulo }}</label>
-                <select [id]="'task-status-' + tarea.id" [ngModel]="tarea.estado" (ngModelChange)="cambiarEstado(tarea, $event)" [disabled]="taskBusy">
-                  @for (option of taskColumns; track option.status) {
-                    <option [value]="option.status">{{ option.label }}</option>
-                  }
-                </select>
+                <span class="task-current-status">{{ etiquetaEstado(tarea.estado) }}</span>
                 <button class="btn-secondary" (click)="eliminarTarea(tarea)" [disabled]="taskBusy">Eliminar</button>
               </div>
             </article>

@@ -123,6 +123,98 @@ describe('App', () => {
     expect(dashboard.textContent).toContain('Revisar mediciones');
     expect(dashboard.textContent).not.toContain('StatsWidget');
     expect(dashboard.textContent).not.toContain('microapp Flutter');
+    expect(dashboard.querySelector('select[id^="task-status-"]')).toBeNull();
+    expect((dashboard.querySelector('.task-card') as HTMLElement).draggable).toBeTrue();
+  });
+
+  it('moves a task to the dropped Kanban column', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    const task = {
+      id: 'task-1',
+      titulo: 'Revisar mediciones',
+      descripcion: '',
+      prioridad: 'media' as const,
+      estado: 'pendiente' as const,
+      fechaLimite: '',
+      asignadoA: 'Médico Prueba',
+      categoria: 'Monitoreo',
+    };
+    app.tareas = [task];
+    const dataTransfer = new DataTransfer();
+    const dragStart = new DragEvent('dragstart', { dataTransfer });
+    const drop = new DragEvent('drop', { dataTransfer });
+    const updateStatus = spyOn(app, 'cambiarEstado').and.resolveTo();
+
+    app.iniciarArrastre(dragStart, task);
+    app.soltarTarea(drop, 'completada');
+
+    expect(updateStatus).toHaveBeenCalledWith(task, 'completada');
+    expect(app.draggedTask).toBeNull();
+    expect(app.dropTargetStatus).toBeNull();
+  });
+
+  it('moves touch-dragged tasks using the handle and destination column', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.portalProfile = {
+      id: 'doctor-user',
+      email: 'doctor@example.com',
+      first_name: 'Médico',
+      last_name: 'Prueba',
+      role: 'doctor',
+      is_active: true,
+    };
+    const task = {
+      id: 'task-touch',
+      titulo: 'Revisar mediciones',
+      descripcion: '',
+      prioridad: 'media' as const,
+      estado: 'pendiente' as const,
+      fechaLimite: '',
+      asignadoA: 'Médico Prueba',
+      categoria: 'Monitoreo',
+    };
+    app.tareas = [task];
+    fixture.detectChanges();
+    app.vistaActiva = 'dashboard';
+    fixture.detectChanges();
+
+    const handle = fixture.nativeElement.querySelector('.task-drag-handle') as HTMLElement;
+    const destination = fixture.nativeElement.querySelector(
+      '.kanban-column[data-kanban-status="completada"]',
+    ) as HTMLElement;
+    spyOn(handle, 'setPointerCapture');
+    spyOn(document, 'elementFromPoint').and.returnValue(destination);
+    const updateStatus = spyOn(app, 'cambiarEstado').and.resolveTo();
+    const pointerDown = new PointerEvent('pointerdown', {
+      pointerType: 'touch',
+      isPrimary: true,
+      pointerId: 7,
+      clientX: 20,
+      clientY: 20,
+    });
+    Object.defineProperty(pointerDown, 'currentTarget', { value: handle });
+
+    app.iniciarArrastrePointer(pointerDown, task);
+    app.moverArrastrePointer(new PointerEvent('pointermove', {
+      pointerType: 'touch',
+      isPrimary: true,
+      pointerId: 7,
+      clientX: 40,
+      clientY: 40,
+    }));
+    app.soltarArrastrePointer(new PointerEvent('pointerup', {
+      pointerType: 'touch',
+      isPrimary: true,
+      pointerId: 7,
+      clientX: 40,
+      clientY: 40,
+    }));
+
+    expect(updateStatus).toHaveBeenCalledWith(task, 'completada');
+    expect(app.draggedTask).toBeNull();
+    expect(app.dropTargetStatus).toBeNull();
   });
 
   it('derives platform statistics from available data instead of fixed examples', () => {
