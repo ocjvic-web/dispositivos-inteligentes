@@ -1888,3 +1888,118 @@ a {
     grid-template-columns: 1fr;
   }
 }
+
+.dashboard-wrapper .stats-grid .stat-card {
+  cursor: default;
+}
+
+.kanban-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(230px, 1fr));
+  gap: 14px;
+  margin-top: 20px;
+  overflow-x: auto;
+  align-items: start;
+}
+
+.kanban-column {
+  min-width: 230px;
+  min-height: 220px;
+  padding: 12px;
+  border: 1px solid #dce6f4;
+  border-radius: 14px;
+  background: #f5f8fd;
+}
+
+.kanban-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.kanban-column-header h3 {
+  margin: 0;
+  color: #233b5e;
+  font-size: 0.96rem;
+}
+
+.kanban-column-header > span {
+  min-width: 26px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #e5edf8;
+  color: #345071;
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.kanban-empty {
+  padding: 20px 10px;
+  border: 1px dashed #c9d6e8;
+  border-radius: 10px;
+  color: #71819a;
+  text-align: center;
+  font-size: 0.84rem;
+}
+
+.kanban-column .task-card {
+  display: block;
+  margin-bottom: 10px;
+  border: 1px solid #e0e8f4;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 3px 10px rgba(20, 52, 113, 0.06);
+}
+
+.kanban-column .task-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.kanban-column .task-actions select {
+  min-width: 0;
+  flex: 1;
+}
+
+.task-owner-note {
+  margin: 8px 0 0;
+  color: #5a6f93;
+  font-size: 0.84rem;
+}
+
+.portal-alert-success,
+.portal-alert-error {
+  margin: 12px 0;
+  padding: 11px 14px;
+  border: 1px solid;
+  border-radius: 10px;
+}
+
+.portal-alert-success {
+  border-color: #b9e6cd;
+  background: #effaf3;
+  color: #17613a;
+}
+
+.portal-alert-error {
+  border-color: #f0c4c4;
+  background: #fff3f3;
+  color: #9b3030;
+}
+
+@media (max-width: 1050px) {
+  .kanban-board {
+    grid-template-columns: repeat(2, minmax(230px, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .kanban-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -220,65 +220,77 @@
     <div class="page-header">
       <div class="section-tag">Analytics</div>
       <h2>Estadísticas de la Plataforma</h2>
-      <p class="subtitle">Métricas operativas en tiempo real de nuestra infraestructura biomédica</p>
+      <p class="subtitle">Indicadores calculados a partir de los datos disponibles para tu cuenta.</p>
     </div>
-
-    <!-- KPI cards -->
-    <div class="kpi-grid">
-      @for (s of statsHome; track s.label) {
-        <div class="kpi-card" [style.border-top-color]="s.color">
-          <div class="kpi-icon" [style.background]="s.color + '18'">{{ s.icon }}</div>
-          <div class="kpi-val" [style.color]="s.color">{{ s.valor }}</div>
-          <div class="kpi-label">{{ s.label }}</div>
-        </div>
-      }
-    </div>
-
-    <!-- Monthly chart -->
-    <div class="chart-card">
-      <h3>Pacientes Monitoreados — Últimos 6 Meses</h3>
-      <div class="bar-chart">
-        @for (d of graficaMensual; track d.mes) {
-          <div class="bar-col">
-            <div class="bar-wrap">
-              <div class="bar-fill blue" [style.height.%]="(d.pacientes/maxPacientes)*100" [title]="d.pacientes + ' pacientes'">
-                <span class="bar-val">{{ d.pacientes }}</span>
-              </div>
-              <div class="bar-fill red" [style.height.%]="(d.alertas/maxPacientes)*100" [title]="d.alertas + ' alertas'">
-                <span class="bar-val red-val">{{ d.alertas }}</span>
-              </div>
-            </div>
-            <div class="bar-label">{{ d.mes }}</div>
+    @if (!portalProfile) {
+      <div class="empty-state"><span>🔐</span><p>Inicia sesión para consultar estadísticas.</p></div>
+    } @else if (statsLoading) {
+      <div class="empty-state"><span>⏳</span><p>Cargando estadísticas…</p></div>
+    } @else if (statsError) {
+      <div class="portal-alert portal-alert-error" role="alert">{{ statsError }}</div>
+    }
+    @if (portalProfile && !statsLoading && !statsError) {
+      <div class="kpi-grid">
+        @for (s of statsHome; track s.label) {
+          <div class="kpi-card" [style.border-top-color]="s.color">
+            <div class="kpi-icon" [style.background]="s.color + '18'">{{ s.icon }}</div>
+            <div class="kpi-val" [style.color]="s.color">{{ s.valor }}</div>
+            <div class="kpi-label">{{ s.label }}</div>
           </div>
         }
       </div>
-      <div class="chart-legend">
-        <span class="legend-dot blue"></span> Pacientes &nbsp;
-        <span class="legend-dot red"></span> Alertas resueltas
-      </div>
-    </div>
+    }
 
-    <!-- Devices pie-like -->
-    <div class="chart-card">
-      <h3>Distribución de Dispositivos Conectados</h3>
-      <div class="device-bars">
-        @for (d of dispositivosTipo; track d.tipo) {
-          <div class="device-row">
-            <span class="device-tipo">{{ d.tipo }}</span>
-            <div class="device-track">
-              <div class="device-fill" [style.width.%]="porcentaje(d.cantidad)" [style.background]="d.color"></div>
-            </div>
-            <span class="device-val" [style.color]="d.color">{{ d.cantidad }} ({{ porcentaje(d.cantidad) }}%)</span>
+    @if (portalProfile && !statsLoading && !statsError) {
+      <div class="chart-card">
+        <h3>Registros de los últimos seis meses</h3>
+        @if (graficaMensual.length > 0) {
+          <div class="bar-chart">
+            @for (d of graficaMensual; track d.mes) {
+              <div class="bar-col">
+                <div class="bar-wrap">
+                  <div class="bar-fill blue" [style.height.%]="(d.mediciones/maxRegistrosMensuales)*100" [title]="d.mediciones + ' mediciones'">
+                    <span class="bar-val">{{ d.mediciones }}</span>
+                  </div>
+                  <div class="bar-fill red" [style.height.%]="(d.reportes/maxRegistrosMensuales)*100" [title]="d.reportes + ' reportes'">
+                    <span class="bar-val red-val">{{ d.reportes }}</span>
+                  </div>
+                </div>
+                <div class="bar-label">{{ d.mes }}</div>
+              </div>
+            }
           </div>
+          <div class="chart-legend">
+            <span class="legend-dot blue"></span> Mediciones &nbsp;
+            <span class="legend-dot red"></span> Reportes
+          </div>
+        } @else {
+          <div class="empty-state"><span>📊</span><p>Aún no hay registros para mostrar.</p></div>
         }
       </div>
-    </div>
-
-    <!-- CTA -->
-    <div class="stats-cta">
-      <p>¿Quieres integrar estos datos en tu institución?</p>
-      <button class="btn-primary" (click)="navegar('contacto')">Contactar ahora</button>
-    </div>
+      <div class="chart-card">
+        <h3>Wearables registrados por modelo</h3>
+        @if (dispositivosTipo.length > 0) {
+          <div class="device-bars">
+            @for (d of dispositivosTipo; track d.tipo) {
+              <div class="device-row">
+                <span class="device-tipo">{{ d.tipo }}</span>
+                <div class="device-track">
+                  <div class="device-fill" [style.width.%]="porcentaje(d.cantidad)" [style.background]="d.color"></div>
+                </div>
+                <span class="device-val" [style.color]="d.color">{{ d.cantidad }} ({{ porcentaje(d.cantidad) }}%)</span>
+              </div>
+            }
+          </div>
+        } @else {
+          <div class="empty-state"><span>⌚</span><p>No hay wearables registrados.</p></div>
+        }
+      </div>
+      <div class="stats-cta">
+        <p>¿Quieres integrar estos datos en tu institución?</p>
+        <button class="btn-primary" (click)="navegar('contacto')">Contactar ahora</button>
+      </div>
+    }
   </div>
 }
 
@@ -287,11 +299,15 @@
   <div class="dashboard-wrapper">
     <div class="dashboard-header">
       <div>
-        <h2>Dashboard Biomédico</h2>
-        <p class="subtitle">Seguimiento clínico y operativo · inspirado en Flutter StatsWidget</p>
+        <h2>Tablero de tareas</h2>
+        <p class="subtitle">Tareas personales de {{ portalProfile?.first_name }}. Cada cuenta administra únicamente sus propias tareas.</p>
       </div>
-      <button class="btn-primary" (click)="abrirModal()">+ Nuevo Protocolo</button>
+      <button class="btn-primary" (click)="abrirModal()" [disabled]="taskBusy">+ Nueva tarea</button>
     </div>
+    @if (tasksLoading) { <div class="empty-state"><span>⏳</span><p>Cargando tareas…</p></div> }
+    @if (tasksError) { <div class="portal-alert portal-alert-error" role="alert">{{ tasksError }}</div> }
+    @if (taskNotice) { <div class="portal-alert portal-alert-success" role="status">{{ taskNotice }}</div> }
+    @if (taskActionError) { <div class="portal-alert portal-alert-error" role="alert">{{ taskActionError }}</div> }
     <div class="stats-section">
       <div class="progress-card">
         <div class="progress-header">
@@ -304,102 +320,87 @@
         <span class="progress-pct">{{ progresoGeneral }}%</span>
       </div>
       <div class="stats-grid">
-        <button class="stat-card" [class.active-filter]="filtroEstado==='pendiente'" (click)="filtroEstado='pendiente'">
+        <div class="stat-card">
           <div class="stat-icon" style="background:#f3f4f6">⏳</div>
           <div><div class="stat-number" style="color:#6b7280">{{ tareasPendientes }}</div><div class="stat-label">Pendientes</div></div>
-        </button>
-        <button class="stat-card" [class.active-filter]="filtroEstado==='en_progreso'" (click)="filtroEstado='en_progreso'">
+        </div>
+        <div class="stat-card">
           <div class="stat-icon" style="background:#eff6ff">🔄</div>
-          <div><div class="stat-number" style="color:#3b82f6">{{ tareasEnProgreso }}</div><div class="stat-label">En Progreso</div></div>
-        </button>
-        <button class="stat-card" [class.active-filter]="filtroEstado==='completada'" (click)="filtroEstado='completada'">
+          <div><div class="stat-number" style="color:#3b82f6">{{ tareasEnProgreso }}</div><div class="stat-label">En progreso</div></div>
+        </div>
+        <div class="stat-card">
           <div class="stat-icon" style="background:#f0fdf4">✅</div>
           <div><div class="stat-number" style="color:#16a34a">{{ tareasCompletadas }}</div><div class="stat-label">Completadas</div></div>
-        </button>
-        <button class="stat-card" [class.active-filter]="filtroEstado==='cancelada'" (click)="filtroEstado='cancelada'">
-          <div class="stat-icon" style="background:#fff1f2">❌</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#fff1f2">✕</div>
           <div><div class="stat-number" style="color:#f87171">{{ tareasCanceladas }}</div><div class="stat-label">Canceladas</div></div>
-        </button>
-      </div>
-      <div class="flutter-panel">
-        <div class="flutter-badge"><span>🐦</span><strong>Integración Flutter Biomédica</strong><span class="flutter-tag">StatsWidget.dart</span></div>
-        <p class="flutter-desc">Panel clínico Flutter conectado a la microapp publicada. Puedes abrirlo aparte o refrescar su vista embebida.</p>
-        <div class="wearable-actions">
-          <button class="btn-primary" (click)="abrirFlutterDashboard()">Abrir microapp Flutter</button>
-          <button class="btn-secondary" (click)="recargarFlutterDashboard()">Recargar panel</button>
         </div>
-        <p class="subtitle">Estado: {{ flutterDashboardDisponible ? 'Microapp disponible y embebida' : 'Microapp en comprobación o no disponible' }}</p>
-        @if (flutterDashboardDisponible) {
-          <div class="flutter-iframe-placeholder">
-            <iframe [src]="flutterDashboardUrl" title="Flutter Task Dashboard" class="flutter-iframe"></iframe>
-          </div>
-        } @else {
-          <div class="empty-state">
-            <span>🐦</span>
-            <p>La microapp Flutter no respondió en este momento. Usa “Abrir microapp Flutter” para verla directamente.</p>
-          </div>
-        }
       </div>
     </div>
-    <div class="filter-tabs">
-      <button [class.tab-active]="filtroEstado==='todos'" (click)="filtroEstado='todos'">Todas ({{ totalTareas }})</button>
-      <button [class.tab-active]="filtroEstado==='pendiente'" (click)="filtroEstado='pendiente'">⏳ Pendiente</button>
-      <button [class.tab-active]="filtroEstado==='en_progreso'" (click)="filtroEstado='en_progreso'">🔄 En Progreso</button>
-      <button [class.tab-active]="filtroEstado==='completada'" (click)="filtroEstado='completada'">✅ Completada</button>
-      <button [class.tab-active]="filtroEstado==='cancelada'" (click)="filtroEstado='cancelada'">❌ Cancelada</button>
-    </div>
-    <div class="task-list">
-      @if (tareasFiltradas.length === 0) { <div class="empty-state"><span>📭</span><p>No hay tareas en esta categoría.</p></div> }
-      @for (tarea of tareasFiltradas; track tarea.id) {
-        <div class="task-card" [class.task-vencida]="estaVencida(tarea)">
-          <div class="task-left"><div class="task-estado-dot" [style.background]="colorEstado(tarea.estado)"></div></div>
-          <div class="task-body">
-            <div class="task-title-row">
-              <span class="task-titulo" [class.tachado]="tarea.estado==='completada'">{{ tarea.titulo }}</span>
-              @if (estaVencida(tarea)) { <span class="badge-vencida">⚠ Vencida</span> }
-            </div>
-            <p class="task-desc">{{ tarea.descripcion }}</p>
-            <div class="task-chips">
-              <span class="chip" [style.background]="colorPrioridad(tarea.prioridad)" style="color:white">{{ tarea.prioridad | uppercase }}</span>
-              <span class="chip chip-grey">{{ tarea.categoria }}</span>
-              <span class="chip chip-grey">📅 {{ tarea.fechaLimite }}</span>
-              <span class="chip chip-grey">👤 {{ tarea.asignadoA }}</span>
-            </div>
-          </div>
-          <div class="task-actions">
-            <label [for]="'select-' + tarea.id" class="sr-only">Estado de {{ tarea.titulo }}</label>
-            <select [id]="'select-' + tarea.id" class="estado-select" [style.border-color]="colorEstado(tarea.estado)" [value]="tarea.estado" (change)="cambiarEstado(tarea,$any($event.target).value)">
-              <option value="pendiente">⏳ Pendiente</option>
-              <option value="en_progreso">🔄 En Progreso</option>
-              <option value="completada">✅ Completada</option>
-              <option value="cancelada">❌ Cancelada</option>
-            </select>
-          </div>
-        </div>
+    <div class="kanban-board">
+      @for (column of taskColumns; track column.status) {
+        <section class="kanban-column">
+          <header class="kanban-column-header">
+            <h3>{{ column.icon }} {{ column.label }}</h3>
+            <span>{{ tareasPorEstado(column.status).length }}</span>
+          </header>
+          @if (!tasksLoading && !tasksError && tareasPorEstado(column.status).length === 0) {
+            <div class="kanban-empty">Sin tareas</div>
+          }
+          @for (tarea of tareasPorEstado(column.status); track tarea.id) {
+            <article class="task-card" [class.task-vencida]="estaVencida(tarea)">
+              <div class="task-title-row">
+                <span class="task-titulo" [class.tachado]="tarea.estado==='completada'">{{ tarea.titulo }}</span>
+                @if (estaVencida(tarea)) { <span class="badge-vencida">⚠ Vencida</span> }
+              </div>
+              @if (tarea.descripcion) { <p class="task-desc">{{ tarea.descripcion }}</p> }
+              <div class="task-chips">
+                <span class="chip" [style.background]="colorPrioridad(tarea.prioridad)" style="color:white">{{ tarea.prioridad | uppercase }}</span>
+                <span class="chip chip-grey">{{ tarea.categoria }}</span>
+                @if (tarea.fechaLimite) { <span class="chip chip-grey">📅 {{ tarea.fechaLimite }}</span> }
+                <span class="chip chip-grey">👤 {{ tarea.asignadoA }}</span>
+              </div>
+              <div class="task-actions">
+                <label class="sr-only" [for]="'task-status-' + tarea.id">Cambiar estado de {{ tarea.titulo }}</label>
+                <select [id]="'task-status-' + tarea.id" [ngModel]="tarea.estado" (ngModelChange)="cambiarEstado(tarea, $event)" [disabled]="taskBusy">
+                  @for (option of taskColumns; track option.status) {
+                    <option [value]="option.status">{{ option.label }}</option>
+                  }
+                </select>
+                <button class="btn-secondary" (click)="eliminarTarea(tarea)" [disabled]="taskBusy">Eliminar</button>
+              </div>
+            </article>
+          }
+        </section>
       }
     </div>
+    @if (!tasksLoading && !tasksError && totalTareas === 0) {
+      <div class="empty-state"><span>📋</span><p>Aún no tienes tareas. Crea una para comenzar.</p></div>
+    }
   </div>
   @if (modalVisible) {
     <div class="modal-backdrop" (click)="cerrarModal()" (keydown.escape)="cerrarModal()" aria-modal="true" tabindex="-1">
       <div class="modal-box" (click)="$event.stopPropagation()" (keydown)="$event.stopPropagation()">
-        <h3>Nuevo Protocolo Clínico</h3>
+        <h3>Nueva tarea</h3>
         <label for="tarea-titulo">Título *</label>
-        <input id="tarea-titulo" [(ngModel)]="nuevaTarea.titulo" placeholder="Nombre del protocolo" />
+        <input id="tarea-titulo" [(ngModel)]="nuevaTarea.titulo" maxlength="160" required placeholder="Nombre de la tarea" />
         <label for="tarea-desc">Descripción</label>
-        <textarea id="tarea-desc" [(ngModel)]="nuevaTarea.descripcion" rows="2" placeholder="Descripción clínica"></textarea>
+        <textarea id="tarea-desc" [(ngModel)]="nuevaTarea.descripcion" maxlength="2000" rows="2" placeholder="Descripción"></textarea>
         <label for="tarea-prioridad">Prioridad</label>
         <select id="tarea-prioridad" [(ngModel)]="nuevaTarea.prioridad">
           <option value="alta">Alta</option><option value="media">Media</option><option value="baja">Baja</option>
         </select>
         <label for="tarea-fecha">Fecha límite</label>
         <input id="tarea-fecha" type="date" [(ngModel)]="nuevaTarea.fechaLimite" />
-        <label for="tarea-asignado">Responsable</label>
-        <input id="tarea-asignado" [(ngModel)]="nuevaTarea.asignadoA" placeholder="Nombre del responsable" />
-        <label for="tarea-categoria">Área Clínica</label>
-        <input id="tarea-categoria" [(ngModel)]="nuevaTarea.categoria" placeholder="Ej: UCI, Cardiología, QA…" />
+        <label for="tarea-categoria">Categoría</label>
+        <input id="tarea-categoria" [(ngModel)]="nuevaTarea.categoria" maxlength="120" placeholder="Ej. UCI, Cardiología…" />
+        <p class="task-owner-note">La tarea quedará asignada a tu cuenta.</p>
         <div class="modal-actions">
-          <button class="btn-secondary" (click)="cerrarModal()">Cancelar</button>
-          <button class="btn-primary" (click)="guardarTarea()">Crear Protocolo</button>
+          <button class="btn-secondary" (click)="cerrarModal()" [disabled]="taskBusy">Cancelar</button>
+          <button class="btn-primary" (click)="guardarTarea()" [disabled]="taskBusy || !nuevaTarea.titulo?.trim()">
+            {{ taskBusy ? 'Guardando…' : 'Crear tarea' }}
+          </button>
         </div>
       </div>
     </div>
@@ -427,7 +428,7 @@
           @if (wearables.length === 0) {
             <div class="empty-state">
               <span>⌚</span>
-              <p>Aún no hay smartwatches remotos conectados. Abre la app del reloj o instala el APK público.</p>
+              <p>Aún no hay wearables conectados. Abre la aplicación del reloj para registrar un dispositivo.</p>
             </div>
           }
           @for (wearable of wearables; track wearable.id) {
@@ -458,11 +459,9 @@
         </div>
         <p class="subtitle">Fuente: {{ lastTelemetry.source ?? 'N/A' }} · Secuencia: {{ lastTelemetry.sequence ?? 0 }}</p>
         <div class="wearable-actions">
-          <button class="btn-primary" (click)="navegar('webos')">Enviar a LG webOS</button>
+          <button class="btn-primary" (click)="navegar('webos')">Configurar conexión</button>
           <button class="btn-secondary" (click)="navegar('dashboard')">Abrir dashboard</button>
         </div>
-        <p class="subtitle">Si tu profesor quiere instalar el smartwatch en su emulador, puede descargar el APK desde <a [href]="apkDownloadUrl" target="_blank" rel="noopener">este enlace público</a>.</p>
-        <p class="subtitle">Los modelos ahora se distinguen en la lista como <strong>Round</strong> o <strong>Square</strong>.</p>
       </div>
     </div>
   </div>
@@ -474,11 +473,11 @@
     <div class="wearable-header">
       <div>
         <div class="section-tag">Conexiones</div>
-        <h2>Conexión con Smart TV</h2>
-        <p class="subtitle">Empareja el wearable con una Smart TV LG webOS para mostrar telemetría clínica en tiempo real.</p>
+        <h2>Conexiones de dispositivos</h2>
+        <p class="subtitle">Selecciona un wearable y una pantalla registrada para asociarlos.</p>
       </div>
-      <div class="webos-status" [class.webos-paired]="tvEmparejada">
-        <strong>{{ tvEmparejada ? 'Emparejado' : 'Sin conexión' }}</strong>
+      <div class="webos-status" [class.webos-paired]="tvSeleccionadaEmparejada">
+        <strong>{{ tvSeleccionadaEmparejada ? 'Conectado' : 'Sin conexión' }}</strong>
         <span>{{ tvMensaje }}</span>
       </div>
     </div>
@@ -486,7 +485,7 @@
     <div class="device-overview-grid">
       <div class="device-list-card">
         <div class="section-tag">Smart TVs</div>
-        <h3>Selecciona tu LG webOS</h3>
+        <h3>Selecciona una pantalla</h3>
         <div class="wearable-list tv-list">
           @for (tv of tvs; track tv.id) {
             <button class="wearable-item" [class.active]="tvSeleccionadaId === tv.id" (click)="seleccionarTv(tv.id)">
@@ -501,10 +500,11 @@
         </div>
       </div>
       <div class="device-detail-card webos-card">
-        <div class="section-tag">Companion TV</div>
+        <div class="section-tag">Pantalla seleccionada</div>
         <h3>{{ tvSeleccionada.nombre }}</h3>
         <p class="subtitle">{{ tvSeleccionada.plataforma }} · {{ tvSeleccionada.resolucion }} · {{ tvSeleccionada.sala }}</p>
-        <div class="tv-snapshot">
+        @if (tvSeleccionadaWebOSActiva) {
+          <div class="tv-snapshot">
           <div class="tv-screen">
             <div class="tv-screen-badge">BioMedica · webOS</div>
             <div class="tv-screen-title">{{ wearableSeleccionado.nombre }}</div>
@@ -512,10 +512,15 @@
             <div class="tv-screen-body">Estrés {{ lastTelemetry.stress ?? 0 }}% · Perfusión {{ lastTelemetry.perfusionIndex ?? 0 }} · Sec {{ lastTelemetry.sequence ?? 0 }}</div>
           </div>
         </div>
+        }
+        @if (deviceNotice) { <div class="portal-alert portal-alert-success" role="status">{{ deviceNotice }}</div> }
+        @if (deviceError) { <div class="portal-alert portal-alert-error" role="alert">{{ deviceError }}</div> }
         <div class="wearable-actions">
-          <button class="btn-primary" (click)="conectarWebOS()" [disabled]="tvEmparejada">Conectar a LG webOS</button>
+          <button class="btn-primary" (click)="conectarDispositivo()" [disabled]="deviceBusy || tvSeleccionadaEmparejada || !wearableSeleccionadoId">
+            {{ deviceBusy ? 'Conectando…' : 'Conectar dispositivos' }}
+          </button>
           <button class="btn-secondary" (click)="abrirPantallaTv()">Abrir pantalla TV</button>
-          <button class="btn-secondary" (click)="desconectarWebOS()" [disabled]="!tvEmparejada">Desconectar</button>
+          <button class="btn-secondary" (click)="desconectarDispositivo()" [disabled]="deviceBusy || !tvSeleccionadaEmparejada">Desconectar</button>
         </div>
       </div>
     </div>
@@ -630,7 +635,7 @@
     <div class="page-header">
       <div class="section-tag">Portal clínico</div>
       <h2>BioMedica · Acceso seguro</h2>
-      <p class="subtitle">Pacientes, médicos y administradores comparten la información autorizada en Supabase.</p>
+      <p class="subtitle">La información visible depende de los permisos de tu cuenta.</p>
     </div>
 
     @if (!portalReady) {
@@ -1066,7 +1071,7 @@
         <section class="portal-grid admin-portal-grid">
           <article class="portal-card portal-users-card">
             <h3>Usuarios y roles</h3>
-            <p class="portal-muted">El primer administrador se configura manualmente en Supabase. No hay alta pública de administradores.</p>
+            <p class="portal-muted">La cuenta inicial de administración se habilita mediante configuración del sistema. No hay alta pública de administradores.</p>
             <div class="portal-list portal-user-list">
               @for (user of portalUsers; track user.id) {
                 <div class="portal-admin-row">
@@ -1324,7 +1329,7 @@
 
   <!-- Copyright -->
   <div class="footer-copyright">
-    <span>© 2026 <strong>BioMedica</strong> · Plataforma Clínica Angular + Flutter</span>
-    <span>Práctica 7 y 8 · Todos los derechos reservados</span>
+    <span>© 2026 <strong>BioMedica</strong> · Plataforma Clínica</span>
+    <span>Todos los derechos reservados</span>
   </div>
 </footer>

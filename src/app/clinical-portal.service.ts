@@ -90,6 +90,37 @@ export interface ClinicTurn {
   created_at: string;
 }
 
+export type DashboardTaskStatus = 'pendiente' | 'en_progreso' | 'completada' | 'cancelada';
+export type DashboardTaskPriority = 'alta' | 'media' | 'baja';
+
+export interface DashboardTask {
+  id: string;
+  owner_uid: string;
+  title: string;
+  description: string;
+  priority: DashboardTaskPriority;
+  status: DashboardTaskStatus;
+  due_date: string | null;
+  category: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DashboardTaskInput {
+  title: string;
+  description: string;
+  priority: DashboardTaskPriority;
+  status: DashboardTaskStatus;
+  due_date: string | null;
+  category: string;
+}
+
+export interface DashboardMetrics {
+  patientCount: number;
+  measurementCount: number;
+  monthlyMeasurements: { month: string; count: number }[];
+}
+
 interface RuntimeConfig {
   supabaseUrl: string;
   supabasePublishableKey: string;
@@ -590,6 +621,91 @@ export class ClinicalPortalService {
       .order('created_at', { ascending: false });
     if (error) throw new Error(error.message);
     return data as ClinicTurn[];
+  }
+
+  async loadDashboardTasks(): Promise<DashboardTask[]> {
+    const { data, error } = await this.supabase
+      .from('dashboard_tasks')
+      .select('id, owner_uid, title, description, priority, status, due_date, category, created_at, updated_at')
+      .order('due_date', { ascending: true, nullsFirst: false })
+      .order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data as DashboardTask[];
+  }
+
+  async createDashboardTask(input: DashboardTaskInput): Promise<DashboardTask> {
+    const { data, error } = await this.supabase
+      .from('dashboard_tasks')
+      .insert(input)
+      .select('id, owner_uid, title, description, priority, status, due_date, category, created_at, updated_at')
+      .single();
+    if (error) throw new Error(error.message);
+    return data as DashboardTask;
+  }
+
+  async updateDashboardTaskStatus(
+    taskId: string,
+    status: DashboardTaskStatus,
+  ): Promise<DashboardTask> {
+    const { data, error } = await this.supabase
+      .from('dashboard_tasks')
+      .update({ status })
+      .eq('id', taskId)
+      .select('id, owner_uid, title, description, priority, status, due_date, category, created_at, updated_at')
+      .single();
+    if (error) throw new Error(error.message);
+    return data as DashboardTask;
+  }
+
+  async deleteDashboardTask(taskId: string): Promise<void> {
+    const { error } = await this.supabase
+      .from('dashboard_tasks')
+      .delete()
+      .eq('id', taskId);
+    if (error) throw new Error(error.message);
+  }
+
+  async loadDashboardMetrics(): Promise<DashboardMetrics> {
+    const monthStarts = Array.from({ length: 6 }, (_, index) => {
+      const current = new Date();
+      return new Date(Date.UTC(
+        current.getUTCFullYear(),
+        current.getUTCMonth() - (5 - index),
+        1,
+      ));
+    });
+    const monthlyQueries = monthStarts.map(async (start) => {
+      const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
+      const { count, error } = await this.supabase
+        .from('measurements')
+        .select('id', { count: 'exact', head: true })
+        .gte('reading_at', start.toISOString())
+        .lt('reading_at', end.toISOString());
+      if (error) throw new Error(error.message);
+      return {
+        month: start.toLocaleDateString('es-MX', { month: 'short', timeZone: 'UTC' }),
+        count: count ?? 0,
+      };
+    });
+
+    const [patients, measurements, monthlyMeasurements] = await Promise.all([
+      this.supabase
+        .from('profiles')
+        .select('id', { count: 'exact', head: true })
+        .eq('role', 'patient'),
+      this.supabase
+        .from('measurements')
+        .select('id', { count: 'exact', head: true }),
+      Promise.all(monthlyQueries),
+    ]);
+
+    const failed = [patients.error, measurements.error].find(Boolean);
+    if (failed) throw new Error(failed.message);
+    return {
+      patientCount: patients.count ?? 0,
+      measurementCount: measurements.count ?? 0,
+      monthlyMeasurements,
+    };
   }
 
   async createClinicTurn(input: Omit<ClinicTurn, 'id' | 'created_at'>): Promise<void> {

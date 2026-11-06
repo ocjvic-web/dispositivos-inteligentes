@@ -8,6 +8,11 @@ import {
   ClinicalMessageType,
   ClinicalPortalService,
   ClinicTurn,
+  DashboardMetrics,
+  DashboardTask,
+  DashboardTaskInput,
+  DashboardTaskPriority,
+  DashboardTaskStatus,
   DoctorCredentials,
   PortalProfile,
   PortalRegistration,
@@ -17,8 +22,8 @@ import {
 } from './clinical-portal.service';
 import Fuse from 'fuse.js';
 
-export type EstadoTarea = 'pendiente' | 'en_progreso' | 'completada' | 'cancelada';
-export type Prioridad = 'alta' | 'media' | 'baja';
+export type EstadoTarea = DashboardTaskStatus;
+export type Prioridad = DashboardTaskPriority;
 type VistaActiva =
   | 'inicio'
   | 'dashboard'
@@ -44,7 +49,7 @@ type EstadoUsuario = 'activo' | 'bloqueado';
 type EstadoTurno = 'en_espera' | 'en_atencion' | 'finalizado';
 
 export interface Tarea {
-  id: number;
+  id: string;
   titulo: string;
   descripcion: string;
   prioridad: Prioridad;
@@ -72,7 +77,7 @@ interface TvDevice {
   plataforma: string;
   resolucion: string;
   sala: string;
-  estado: 'Disponible' | 'Emparejado';
+  estado: 'Disponible' | 'Emparejado' | 'En espera';
   appActiva: string;
 }
 
@@ -143,7 +148,6 @@ const wearablePlaceholder: WearableDevice = {
 })
 export class App implements OnInit, OnDestroy {
   private readonly adminTokenStorageKey = 'biomedica.admin.token';
-  private readonly tasksStorageKey = 'biomedica.dashboard.tasks.v2';
   private readonly clinicalPortal = new ClinicalPortalService(
     (...args) => window.fetch(...args),
     `${environment.apiUrl}/config.json`,
@@ -174,11 +178,12 @@ export class App implements OnInit, OnDestroy {
   wearableSeleccionadoId = '';
   tvSeleccionadaId = 'tv-lg-01';
   tvEmparejada = false;
-  tvMensaje = 'LG webOS listo para mostrar el wearable remoto que selecciones.';
+  tvMensaje = 'Selecciona un dispositivo registrado para conectarlo.';
   tvWallUrl = '/tv';
-  apkDownloadUrl = '/downloads/smartwatch_secure_auth_app.apk';
-  flutterDashboardUrl = '/assets/flutter-dashboard/index.html';
-  flutterDashboardDisponible = false;
+  activeTvId = 'tv-lg-01';
+  deviceBusy = false;
+  deviceNotice = '';
+  deviceError = '';
   lastTelemetry: TelemetrySnapshot = {
     wearableId: '',
     heartRate: 0,
@@ -365,7 +370,7 @@ export class App implements OnInit, OnDestroy {
     { titulo: 'Telemetría Biomédica', descripcion: 'Centraliza señales de dispositivos médicos y genera alertas clínicas.', vista: 'inicio', icon: '📡' },
     { titulo: 'Wearables Clínicos', descripcion: 'Smartwatches y sensores conectados con telemetría en tiempo real.', vista: 'wearable', icon: '⌚' },
     { titulo: 'Dashboard Clínico', descripcion: 'Panel de tareas y estadísticas para gestión del flujo hospitalario.', vista: 'dashboard', icon: '📋' },
-    { titulo: 'LG webOS Smart TV', descripcion: 'Vinculación de pantalla Smart TV para mostrar el estado del wearable.', vista: 'webos', icon: '📺' },
+    { titulo: 'Conexiones', descripcion: 'Vinculación de wearables y pantallas compatibles.', vista: 'webos', icon: '📺' },
     { titulo: 'Pantalla Smart TV Wall', descripcion: 'Vista de televisión en sala con datos de telemetría en vivo.', vista: 'tvwall', icon: '🖥️' },
     { titulo: 'Administración de Usuarios', descripcion: 'Panel de control con roles: superadmin, operador y visor.', vista: 'admin', icon: '🔐' },
     { titulo: 'Estadísticas de la Plataforma', descripcion: 'Métricas de wearables, sesiones, telemetría y actividad clínica.', vista: 'estadisticas', icon: '📊' },
@@ -544,13 +549,10 @@ export class App implements OnInit, OnDestroy {
   async ngOnInit() {
     this.vistaActiva = this.rutaInicial();
     this.tvWallUrl = `${window.location.origin}/tv`;
-    this.apkDownloadUrl = `${window.location.origin}/downloads/smartwatch_secure_auth_app.apk`;
-    this.flutterDashboardUrl = `${window.location.origin}/assets/flutter-dashboard/index.html`;
     this.sincronizarRuta();
-    this.cargarTareas();
     this.sliderInterval = setInterval(() => { this.heroSlide = (this.heroSlide + 1) % this.heroSlides.length; }, 5500);
     await this.initializePortal();
-    await Promise.all([this.cargarEstadoPuente(), this.cargarTurnosTv(), this.verificarMicroappDashboard()]);
+    await Promise.all([this.cargarEstadoPuente(), this.cargarTurnosTv()]);
     this.bridgeInterval = setInterval(() => {
       void this.cargarEstadoPuente();
       void this.cargarTurnosTv();
@@ -593,7 +595,7 @@ export class App implements OnInit, OnDestroy {
 
   wearables: WearableDevice[] = [];
 
-  tvs = [
+  tvs: TvDevice[] = [
     {
       id: 'tv-lg-01',
       nombre: 'LG OLED webOS 24',
@@ -609,10 +611,37 @@ export class App implements OnInit, OnDestroy {
       plataforma: 'LG webOS',
       resolucion: '4K HDR',
       sala: 'Sala de telemetría',
-      estado: 'Emparejado',
-      appActiva: 'Dashboard de signos vitales',
+      estado: 'Disponible',
+      appActiva: 'BioMedica TV Hub',
     },
-  ] satisfies TvDevice[];
+    {
+      id: 'tv-samsung-01',
+      nombre: 'Samsung Smart TV',
+      plataforma: 'Samsung Tizen',
+      resolucion: '4K UHD',
+      sala: 'Sala de espera',
+      estado: 'Disponible',
+      appActiva: 'BioMedica TV Hub',
+    },
+    {
+      id: 'tv-android-01',
+      nombre: 'Android TV',
+      plataforma: 'Android TV',
+      resolucion: '4K UHD',
+      sala: 'Consultorio 2',
+      estado: 'Disponible',
+      appActiva: 'BioMedica TV Hub',
+    },
+  ];
+  private readonly tvPlaceholder: TvDevice = {
+    id: '',
+    nombre: 'Sin pantalla registrada',
+    plataforma: '—',
+    resolucion: '—',
+    sala: '—',
+    estado: 'En espera',
+    appActiva: '—',
+  };
 
   private api(path: string): string {
     return `${environment.apiUrl}${path}`;
@@ -675,43 +704,8 @@ export class App implements OnInit, OnDestroy {
     return payload as T;
   }
 
-  private async verificarMicroappDashboard(): Promise<void> {
-    this.flutterDashboardDisponible = await fetch(this.flutterDashboardUrl, { cache: 'no-store' })
-      .then((response) => response.ok)
-      .catch(() => false);
-  }
-
   private dateOffset(daysFromNow: number): string {
     return new Date(Date.now() + (daysFromNow * 86400000)).toISOString().slice(0, 10);
-  }
-
-  private seedTasks(): Tarea[] {
-    return [
-      { id: 1, titulo: 'Validar dashboard de signos vitales', descripcion: 'Verificar visualización de ECG, SpO2 y presión arterial en vistas web y TV.', prioridad: 'alta', estado: 'completada', fechaLimite: this.dateOffset(-2), asignadoA: 'Dra. Ana García', categoria: 'Monitoreo Clínico' },
-      { id: 2, titulo: 'Implementar API HL7/FHIR de pacientes', descripcion: 'Endpoints para interoperabilidad clínica, historiales y consulta de observaciones.', prioridad: 'alta', estado: 'en_progreso', fechaLimite: this.dateOffset(10), asignadoA: 'Ing. Carlos López', categoria: 'Integración Clínica' },
-      { id: 3, titulo: 'Pruebas de calidad de señal biomédica', descripcion: 'Cobertura sobre ruido, latencia, pérdida de señal y consistencia de sensores.', prioridad: 'media', estado: 'pendiente', fechaLimite: this.dateOffset(14), asignadoA: 'Laura Martínez', categoria: 'QA Biomédica' },
-      { id: 4, titulo: 'Configurar despliegue seguro hospitalario', descripcion: 'Pipeline con validaciones, auditoría de eventos y hardening web en producción.', prioridad: 'media', estado: 'en_progreso', fechaLimite: this.dateOffset(7), asignadoA: 'Víctor Orozco', categoria: 'DevOps Clínico' },
-      { id: 5, titulo: 'Documentar protocolos de alarmas médicas', descripcion: 'Guías para umbrales, notificaciones y respuesta ante eventos críticos.', prioridad: 'baja', estado: 'completada', fechaLimite: this.dateOffset(-4), asignadoA: 'Víctor Orozco', categoria: 'Documentación Clínica' },
-      { id: 6, titulo: 'Optimizar consultas de biomarcadores', descripcion: 'Acelerar paneles de laboratorio con índices, caché y respuestas filtradas.', prioridad: 'alta', estado: 'pendiente', fechaLimite: this.dateOffset(18), asignadoA: 'Ing. Carlos López', categoria: 'Datos Biomédicos' },
-      { id: 7, titulo: 'Actualizar firmware de dispositivos legacy', descripcion: 'Sincronizar versiones para monitores antiguos sin afectar continuidad clínica.', prioridad: 'baja', estado: 'cancelada', fechaLimite: this.dateOffset(-6), asignadoA: 'Dra. Ana García', categoria: 'Mantenimiento Biomédico' },
-      { id: 8, titulo: 'Integrar panel Flutter de telemetría', descripcion: 'Exponer microapp Flutter en iframe y enlace independiente con verificación de disponibilidad.', prioridad: 'media', estado: 'en_progreso', fechaLimite: this.dateOffset(5), asignadoA: 'Víctor Orozco', categoria: 'Frontend Clínico' },
-    ];
-  }
-
-  private cargarTareas(): void {
-    try {
-      const stored = window.localStorage.getItem(this.tasksStorageKey);
-      this.tareas = stored ? JSON.parse(stored) as Tarea[] : this.seedTasks();
-    } catch {
-      this.tareas = this.seedTasks();
-    }
-
-    this.nextId = this.tareas.reduce((max, task) => Math.max(max, task.id), 0) + 1;
-    this.persistirTareas();
-  }
-
-  private persistirTareas(): void {
-    window.localStorage.setItem(this.tasksStorageKey, JSON.stringify(this.tareas));
   }
 
   private fusionarWearables(wearables: Partial<WearableDevice>[]): void {
@@ -746,6 +740,7 @@ export class App implements OnInit, OnDestroy {
         wearables?: Partial<WearableDevice>[];
         wearable?: Partial<WearableDevice>;
         tv?: Partial<TvDevice>;
+        tvs?: TvDevice[];
         activeWearableId?: string;
         tvPaired?: boolean;
         lastTelemetry?: Partial<TelemetrySnapshot>;
@@ -753,6 +748,9 @@ export class App implements OnInit, OnDestroy {
 
       if (data.wearables?.length) {
         this.fusionarWearables(data.wearables);
+      }
+      if (data.tvs?.length) {
+        this.tvs = data.tvs;
       }
 
       if (data.activeWearableId) {
@@ -780,13 +778,14 @@ export class App implements OnInit, OnDestroy {
       }
 
       this.tvEmparejada = Boolean(data.tvPaired);
+      this.activeTvId = data.tv?.id ?? this.activeTvId;
       this.puenteActivo = Boolean(data.wearable?.id);
       this.puenteMensaje = data.wearable?.id
         ? `Conectado a nube · wearable ${data.wearable.nombre ?? 'N/A'} · TV ${data.tv?.nombre ?? 'N/A'} · seq ${this.lastTelemetry.sequence ?? 0}`
         : 'Sin wearables remotos activos todavía. Abre la app del smartwatch para registrar uno.';
       this.tvMensaje = this.tvEmparejada
-        ? `Conexión real activa: ${data.wearable?.nombre ?? 'Wearable'} → ${data.tv?.nombre ?? 'LG webOS'}.`
-        : 'Selecciona un wearable remoto y una TV para emparejar.';
+        ? `Dispositivo conectado: ${data.wearable?.nombre ?? 'Wearable'} → ${data.tv?.nombre ?? 'Pantalla'}.`
+        : 'Selecciona un wearable y una pantalla registrada para emparejar.';
     } catch {
       this.puenteActivo = false;
       this.puenteMensaje = 'La nube no está respondiendo temporalmente. Recarga o revisa Render.';
@@ -836,12 +835,19 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  statsHome = [
-    { valor: '12,847', label: 'Pacientes Monitoreados', icon: '🏥', color: '#001ef8' },
-    { valor: '384', label: 'Dispositivos Conectados', icon: '📡', color: '#f80000' },
-    { valor: '2,931', label: 'Alertas Resueltas', icon: '🔔', color: '#10b981' },
-    { valor: '99.7%', label: 'Uptime Garantizado', icon: '⚡', color: '#f59e0b' },
-  ];
+  get statsHome() {
+    const reportCount = this.reportStatsAvailable
+      ? this.portalReports.length.toLocaleString('es-MX')
+      : '—';
+    const measurementCount = this.dashboardMetrics?.measurementCount.toLocaleString('es-MX') ?? '—';
+    const patientCount = this.dashboardMetrics?.patientCount.toLocaleString('es-MX') ?? '—';
+    return [
+      { valor: patientCount, label: 'Pacientes visibles', icon: '🏥', color: '#001ef8' },
+      { valor: this.connectedWearableCount.toLocaleString('es-MX'), label: 'Wearables conectados', icon: '📡', color: '#f80000' },
+      { valor: measurementCount, label: 'Mediciones registradas', icon: '💓', color: '#10b981' },
+      { valor: reportCount, label: 'Reportes disponibles', icon: '📋', color: '#f59e0b' },
+    ];
+  }
 
   servicios = [
     { titulo: 'Telemetría Hospitalaria', desc: 'Monitoreo 24/7 de signos vitales con alertas automáticas y tableros clínicos en tiempo real.', icon: '📊' },
@@ -853,32 +859,52 @@ export class App implements OnInit, OnDestroy {
   ];
 
   // Estadísticas view
-  graficaMensual = [
-    { mes: 'Ene', pacientes: 820, alertas: 198 },
-    { mes: 'Feb', pacientes: 950, alertas: 231 },
-    { mes: 'Mar', pacientes: 1100, alertas: 267 },
-    { mes: 'Abr', pacientes: 1040, alertas: 244 },
-    { mes: 'May', pacientes: 1280, alertas: 310 },
-    { mes: 'Jun', pacientes: 1430, alertas: 352 },
-  ];
-  maxPacientes = 1430;
+  dashboardMetrics: DashboardMetrics | null = null;
+  statsLoading = false;
+  statsError = '';
+  reportStatsAvailable = false;
+  graficaMensual: { mes: string; mediciones: number; reportes: number }[] = [];
 
-  dispositivosTipo = [
-    { tipo: 'Monitores ECG', cantidad: 142, color: '#001ef8' },
-    { tipo: 'Pulsioxímetros', cantidad: 98, color: '#f80000' },
-    { tipo: 'Glucómetros', cantidad: 64, color: '#10b981' },
-    { tipo: 'Holters', cantidad: 48, color: '#f59e0b' },
-    { tipo: 'Otros', cantidad: 32, color: '#8b5cf6' },
-  ];
-  totalDispositivos = 384;
-  porcentaje(n: number) { return Math.round((n / this.totalDispositivos) * 100); }
+  get maxRegistrosMensuales(): number {
+    return Math.max(
+      1,
+      ...this.graficaMensual.flatMap((month) => [month.mediciones, month.reportes]),
+    );
+  }
+
+  get connectedWearableCount(): number {
+    return this.wearables.filter((wearable) => wearable.estado === 'Conectado').length;
+  }
+
+  get dispositivosTipo(): { tipo: string; cantidad: number; color: string }[] {
+    const colors = ['#001ef8', '#f80000', '#10b981', '#f59e0b', '#8b5cf6'];
+    const byModel = new Map<string, number>();
+    for (const wearable of this.wearables) {
+      byModel.set(wearable.modelo, (byModel.get(wearable.modelo) ?? 0) + 1);
+    }
+    return [...byModel.entries()].map(([tipo, cantidad], index) => ({
+      tipo,
+      cantidad,
+      color: colors[index % colors.length],
+    }));
+  }
+
+  get totalDispositivos(): number {
+    return this.wearables.length;
+  }
+
+  porcentaje(n: number): number {
+    return this.totalDispositivos === 0
+      ? 0
+      : Math.round((n / this.totalDispositivos) * 100);
+  }
 
   get wearableSeleccionado(): WearableDevice {
     return this.wearables.find((w) => w.id === this.wearableSeleccionadoId) ?? this.wearables[0] ?? wearablePlaceholder;
   }
 
   get tvSeleccionada(): TvDevice {
-    return this.tvs.find((tv) => tv.id === this.tvSeleccionadaId) ?? this.tvs[0];
+    return this.tvs.find((tv) => tv.id === this.tvSeleccionadaId) ?? this.tvs[0] ?? this.tvPlaceholder;
   }
 
   get turnoActual(): TurnoAtencion | null {
@@ -906,7 +932,7 @@ export class App implements OnInit, OnDestroy {
 
   seleccionarWearable(id: string) {
     this.wearableSeleccionadoId = id;
-    this.tvMensaje = `Wearable ${this.wearableSeleccionado.nombre} listo para enviar datos a LG webOS.`;
+    this.tvMensaje = `Wearable ${this.wearableSeleccionado.nombre} seleccionado.`;
     void fetch(this.api('/api/select-wearable'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -916,32 +942,62 @@ export class App implements OnInit, OnDestroy {
 
   seleccionarTv(id: string) {
     this.tvSeleccionadaId = id;
-    this.tvMensaje = `${this.tvSeleccionada.nombre} seleccionada para visualización en LG webOS.`;
+    this.deviceNotice = '';
+    this.deviceError = '';
+    this.tvMensaje = `${this.tvSeleccionada.nombre} seleccionada.`;
   }
 
-  conectarWebOS() {
-    void fetch(this.api('/api/pair'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wearableId: this.wearableSeleccionadoId, tvId: this.tvSeleccionadaId }),
-    }).finally(() => void this.cargarEstadoPuente());
+  get tvSeleccionadaEmparejada(): boolean {
+    return this.tvEmparejada && this.activeTvId === this.tvSeleccionadaId;
   }
 
-  desconectarWebOS() {
-    void fetch(this.api('/api/unpair'), { method: 'POST' })
-      .finally(() => void this.cargarEstadoPuente());
+  get tvSeleccionadaWebOSActiva(): boolean {
+    return this.tvSeleccionadaEmparejada
+      && this.tvSeleccionada.plataforma.toLowerCase().includes('webos');
+  }
+
+  async conectarDispositivo(): Promise<void> {
+    this.deviceBusy = true;
+    this.deviceError = '';
+    this.deviceNotice = '';
+    try {
+      const response = await fetch(this.api('/api/pair'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ wearableId: this.wearableSeleccionadoId, tvId: this.tvSeleccionadaId }),
+      });
+      if (!response.ok) {
+        throw new Error(`No se pudo conectar el dispositivo (HTTP ${response.status}).`);
+      }
+      this.deviceNotice = 'Dispositivo conectado correctamente.';
+      await this.cargarEstadoPuente();
+    } catch (error) {
+      this.deviceError = error instanceof Error ? error.message : 'No se pudo conectar el dispositivo.';
+    } finally {
+      this.deviceBusy = false;
+    }
+  }
+
+  async desconectarDispositivo(): Promise<void> {
+    this.deviceBusy = true;
+    this.deviceError = '';
+    this.deviceNotice = '';
+    try {
+      const response = await fetch(this.api('/api/unpair'), { method: 'POST' });
+      if (!response.ok) {
+        throw new Error(`No se pudo desconectar el dispositivo (HTTP ${response.status}).`);
+      }
+      this.deviceNotice = 'Dispositivo desconectado correctamente.';
+      await this.cargarEstadoPuente();
+    } catch (error) {
+      this.deviceError = error instanceof Error ? error.message : 'No se pudo desconectar el dispositivo.';
+    } finally {
+      this.deviceBusy = false;
+    }
   }
 
   abrirPantallaTv(): void {
     window.open(this.tvWallUrl, '_blank', 'noopener');
-  }
-
-  abrirFlutterDashboard(): void {
-    window.open(this.flutterDashboardUrl, '_blank', 'noopener');
-  }
-
-  recargarFlutterDashboard(): void {
-    this.flutterDashboardUrl = `${window.location.origin}/assets/flutter-dashboard/index.html?ts=${Date.now()}`;
   }
 
   etiquetaEstadoTurno(estado: EstadoTurno): string {
@@ -1201,6 +1257,14 @@ export class App implements OnInit, OnDestroy {
       this.clinicTurns = [];
       this.supportConversations = [];
       this.supportMessages = [];
+      this.tareas = [];
+      this.tasksError = '';
+      this.taskNotice = '';
+      this.taskActionError = '';
+      this.dashboardMetrics = null;
+      this.graficaMensual = [];
+      this.reportStatsAvailable = false;
+      this.statsError = '';
       this.selectedSupportConversationId = '';
       this.selectedConversationId = '';
       this.selectedPatientUid = '';
@@ -1218,9 +1282,13 @@ export class App implements OnInit, OnDestroy {
     const currentProfile = this.portalProfile;
     if (!currentProfile) return;
     const syncWarnings: string[] = [];
+    this.tasksError = '';
+    this.statsError = '';
     try {
       const profile = await this.clinicalPortal.loadProfile(currentProfile.id);
       this.portalProfile = profile;
+      this.tasksLoading = profile.role === 'doctor' || profile.role === 'admin';
+      this.statsLoading = ['doctor', 'patient', 'admin'].includes(profile.role);
       if (!profile.is_active) {
         await this.clinicalPortal.signOut();
         this.portalProfile = null;
@@ -1233,6 +1301,12 @@ export class App implements OnInit, OnDestroy {
         this.portalUsers = [];
         this.supportConversations = [];
         this.supportMessages = [];
+        this.tareas = [];
+        this.tasksError = '';
+        this.dashboardMetrics = null;
+        this.graficaMensual = [];
+        this.reportStatsAvailable = false;
+        this.statsError = '';
         this.portalError = 'Tu cuenta está dada de baja. Se cerró la sesión y tus datos se conservan.';
         this.navegar('admin');
         return;
@@ -1244,16 +1318,34 @@ export class App implements OnInit, OnDestroy {
         this.portalMeasurements = [];
         this.portalConversations = [];
         this.portalMessages = [];
+        this.tareas = [];
+        this.dashboardMetrics = null;
+        this.reportStatsAvailable = false;
         return;
       }
       if (profile.role === 'doctor') {
-        const [patients, conversations] = await Promise.all([
+        const [patients, conversations, tasksResult] = await Promise.all([
           this.clinicalPortal.loadDoctorPatients(profile.id),
           this.clinicalPortal.loadDoctorConversations(profile.id),
+          this.clinicalPortal.loadDashboardTasks().then(
+            (value) => ({ status: 'fulfilled' as const, value }),
+            (reason: unknown) => ({ status: 'rejected' as const, reason }),
+          ),
         ]);
         this.portalPatients = patients;
         const assignedUids = new Set(patients.map((patient) => patient.id));
         this.portalConversations = conversations;
+        this.reportStatsAvailable = false;
+        if (tasksResult.status === 'fulfilled') {
+          this.tareas = tasksResult.value.map((task) => this.toTarea(task));
+          this.tasksError = '';
+        } else {
+          this.tareas = [];
+          this.tasksError = tasksResult.reason instanceof Error
+            ? tasksResult.reason.message
+            : 'No se pudieron cargar las tareas.';
+          syncWarnings.push(`Tareas: ${this.tasksError}`);
+        }
         const [reportsResult, measurementsResult] = await Promise.allSettled([
           this.clinicalPortal.loadAssignedReports(),
           this.clinicalPortal.loadPatientMeasurements(patients.map((patient) => patient.id)),
@@ -1263,6 +1355,7 @@ export class App implements OnInit, OnDestroy {
             const ownerUid = report['ownerUid'];
             return typeof ownerUid === 'string' && assignedUids.has(ownerUid);
           });
+          this.reportStatsAvailable = true;
         } else {
           this.portalReports = [];
           syncWarnings.push(
@@ -1301,6 +1394,9 @@ export class App implements OnInit, OnDestroy {
         ]);
         this.portalDoctors = doctors;
         this.portalConversations = conversations;
+        this.tareas = [];
+        this.tasksError = '';
+        this.reportStatsAvailable = false;
         if (measurementsResult.status === 'fulfilled') {
           this.portalMeasurements = measurementsResult.value;
         } else {
@@ -1313,6 +1409,7 @@ export class App implements OnInit, OnDestroy {
         }
         if (reportsResult.status === 'fulfilled') {
           this.portalReports = reportsResult.value.filter((report) => report['ownerUid'] === profile.id);
+          this.reportStatsAvailable = true;
         } else {
           this.portalReports = [];
           syncWarnings.push(
@@ -1328,14 +1425,64 @@ export class App implements OnInit, OnDestroy {
           this.portalMessages = [];
         }
       } else if (profile.role === 'admin') {
-        const [adminData, turns] = await Promise.all([
+        const [adminData, turns, tasksResult, reportsResult] = await Promise.all([
           this.clinicalPortal.loadAdminUsers(),
           this.clinicalPortal.loadClinicTurns(),
+          this.clinicalPortal.loadDashboardTasks().then(
+            (value) => ({ status: 'fulfilled' as const, value }),
+            (reason: unknown) => ({ status: 'rejected' as const, reason }),
+          ),
+          this.clinicalPortal.loadAssignedReports().then(
+            (value) => ({ status: 'fulfilled' as const, value }),
+            (reason: unknown) => ({ status: 'rejected' as const, reason }),
+          ),
         ]);
         this.portalUsers = adminData.profiles;
         this.doctorCredentials = adminData.credentials;
         this.doctorAssignments = adminData.assignments;
         this.clinicTurns = turns;
+        if (tasksResult.status === 'fulfilled') {
+          this.tareas = tasksResult.value.map((task) => this.toTarea(task));
+          this.tasksError = '';
+        } else {
+          this.tareas = [];
+          this.tasksError = tasksResult.reason instanceof Error
+            ? tasksResult.reason.message
+            : 'No se pudieron cargar las tareas.';
+          syncWarnings.push(`Tareas: ${this.tasksError}`);
+        }
+        if (reportsResult.status === 'fulfilled') {
+          this.portalReports = reportsResult.value;
+          this.reportStatsAvailable = true;
+        } else {
+          this.portalReports = [];
+          this.reportStatsAvailable = false;
+          syncWarnings.push(
+            reportsResult.reason instanceof Error
+              ? `Reportes: ${reportsResult.reason.message}`
+              : 'No se pudieron cargar los reportes.',
+          );
+        }
+      } else {
+        this.tareas = [];
+        this.tasksError = '';
+        this.reportStatsAvailable = false;
+      }
+      if (profile.role === 'doctor' || profile.role === 'patient' || profile.role === 'admin') {
+        const metricsResult = await Promise.allSettled([
+          this.clinicalPortal.loadDashboardMetrics(),
+        ]);
+        if (metricsResult[0].status === 'fulfilled') {
+          this.dashboardMetrics = metricsResult[0].value;
+          this.statsError = '';
+        } else {
+          this.dashboardMetrics = null;
+          this.statsError = metricsResult[0].reason instanceof Error
+            ? metricsResult[0].reason.message
+            : 'No se pudieron cargar las estadísticas.';
+          syncWarnings.push(`Estadísticas: ${this.statsError}`);
+        }
+        this.actualizarGraficaMensual();
       }
       if (this.vistaActiva === 'support') {
         this.supportConversations = await this.clinicalPortal.loadSupportConversations();
@@ -1349,6 +1496,9 @@ export class App implements OnInit, OnDestroy {
       this.portalError = syncWarnings.join(' ');
     } catch (error) {
       this.portalError = error instanceof Error ? error.message : 'No se pudieron sincronizar los datos del portal.';
+    } finally {
+      this.tasksLoading = false;
+      this.statsLoading = false;
     }
   }
 
@@ -1656,7 +1806,7 @@ export class App implements OnInit, OnDestroy {
       };
       await this.refreshPortalData();
       await this.cargarTurnosTv();
-      this.portalStatus = 'Turno guardado en Supabase.';
+      this.portalStatus = 'Turno guardado correctamente.';
     } catch (error) {
       this.portalError = error instanceof Error ? error.message : 'No se pudo guardar el turno.';
     } finally {
@@ -1892,34 +2042,158 @@ export class App implements OnInit, OnDestroy {
     }, 4000);
   }
 
-  // Dashboard
-  filtroEstado: EstadoTarea | 'todos' = 'todos';
+  // Dashboard tasks are fetched and scoped by the authenticated user's database policies.
+  readonly taskColumns: { status: EstadoTarea; label: string; icon: string }[] = [
+    { status: 'pendiente', label: 'Pendiente', icon: '⏳' },
+    { status: 'en_progreso', label: 'En progreso', icon: '🔄' },
+    { status: 'completada', label: 'Completada', icon: '✅' },
+    { status: 'cancelada', label: 'Cancelada', icon: '✕' },
+  ];
   modalVisible = false;
+  taskBusy = false;
+  tasksLoading = false;
+  tasksError = '';
+  taskNotice = '';
+  taskActionError = '';
   nuevaTarea: Partial<Tarea> = {};
-  nextId = 1;
   tareas: Tarea[] = [];
   get totalTareas() { return this.tareas.length; }
-  get tareasPendientes() { return this.tareas.filter(t => t.estado === 'pendiente').length; }
-  get tareasEnProgreso() { return this.tareas.filter(t => t.estado === 'en_progreso').length; }
-  get tareasCompletadas() { return this.tareas.filter(t => t.estado === 'completada').length; }
-  get tareasCanceladas() { return this.tareas.filter(t => t.estado === 'cancelada').length; }
+  get tareasPendientes() { return this.tareas.filter((task) => task.estado === 'pendiente').length; }
+  get tareasEnProgreso() { return this.tareas.filter((task) => task.estado === 'en_progreso').length; }
+  get tareasCompletadas() { return this.tareas.filter((task) => task.estado === 'completada').length; }
+  get tareasCanceladas() { return this.tareas.filter((task) => task.estado === 'cancelada').length; }
   get progresoGeneral() { return this.totalTareas === 0 ? 0 : Math.round((this.tareasCompletadas / this.totalTareas) * 100); }
-  get tareasFiltradas() { return this.filtroEstado === 'todos' ? this.tareas : this.tareas.filter(t => t.estado === this.filtroEstado); }
+  tareasPorEstado(estado: EstadoTarea): Tarea[] {
+    return this.tareas.filter((task) => task.estado === estado);
+  }
+  private toTarea(task: DashboardTask): Tarea {
+    const profile = this.portalProfile;
+    const name = profile ? `${profile.first_name} ${profile.last_name}`.trim() : 'Usuario';
+    return {
+      id: task.id,
+      titulo: task.title,
+      descripcion: task.description,
+      prioridad: task.priority,
+      estado: task.status,
+      fechaLimite: task.due_date ?? '',
+      asignadoA: name,
+      categoria: task.category,
+    };
+  }
   colorPrioridad(p: Prioridad): string {
     if (p === 'alta') return '#ef4444';
     if (p === 'media') return '#f97316';
     return '#22c55e';
   }
   colorEstado(e: EstadoTarea) { const m: Record<EstadoTarea,string> = { pendiente:'#6b7280', en_progreso:'#3b82f6', completada:'#16a34a', cancelada:'#f87171' }; return m[e]; }
-  etiquetaEstado(e: EstadoTarea) { const m: Record<EstadoTarea,string> = { pendiente:'Pendiente', en_progreso:'En Progreso', completada:'Completada', cancelada:'Cancelada' }; return m[e]; }
-  estaVencida(t: Tarea) { return new Date(`${t.fechaLimite}T23:59:59`) < new Date() && t.estado !== 'completada' && t.estado !== 'cancelada'; }
-  cambiarEstado(tarea: Tarea, estado: EstadoTarea) { tarea.estado = estado; this.persistirTareas(); }
-  abrirModal() { this.nuevaTarea = { prioridad: 'media', estado: 'pendiente', categoria: 'Operación Clínica' }; this.modalVisible = true; }
+  etiquetaEstado(e: EstadoTarea) { const m: Record<EstadoTarea,string> = { pendiente:'Pendiente', en_progreso:'En progreso', completada:'Completada', cancelada:'Cancelada' }; return m[e]; }
+  estaVencida(t: Tarea) { return Boolean(t.fechaLimite) && new Date(`${t.fechaLimite}T23:59:59`) < new Date() && t.estado !== 'completada' && t.estado !== 'cancelada'; }
+  async cambiarEstado(tarea: Tarea, estado: EstadoTarea): Promise<void> {
+    if (this.taskBusy || tarea.estado === estado) return;
+    this.taskBusy = true;
+    this.taskNotice = '';
+    this.taskActionError = '';
+    try {
+      const saved = await this.clinicalPortal.updateDashboardTaskStatus(tarea.id, estado);
+      this.tareas = this.tareas.map((current) => current.id === saved.id ? this.toTarea(saved) : current);
+      this.taskNotice = 'Tarea actualizada correctamente.';
+    } catch (error) {
+      this.taskActionError = error instanceof Error ? error.message : 'No se pudo actualizar la tarea.';
+    } finally {
+      this.taskBusy = false;
+    }
+  }
+  async eliminarTarea(tarea: Tarea): Promise<void> {
+    if (this.taskBusy || !window.confirm(`¿Eliminar la tarea "${tarea.titulo}"?`)) return;
+    this.taskBusy = true;
+    this.taskNotice = '';
+    this.taskActionError = '';
+    try {
+      await this.clinicalPortal.deleteDashboardTask(tarea.id);
+      this.tareas = this.tareas.filter((current) => current.id !== tarea.id);
+      this.taskNotice = 'Tarea eliminada correctamente.';
+    } catch (error) {
+      this.taskActionError = error instanceof Error ? error.message : 'No se pudo eliminar la tarea.';
+    } finally {
+      this.taskBusy = false;
+    }
+  }
+  abrirModal() {
+    this.taskNotice = '';
+    this.taskActionError = '';
+    this.nuevaTarea = {
+      prioridad: 'media',
+      estado: 'pendiente',
+      fechaLimite: this.dateOffset(7),
+      categoria: 'Operación Clínica',
+    };
+    this.modalVisible = true;
+  }
   cerrarModal() { this.modalVisible = false; }
-  guardarTarea() {
-    if (!this.nuevaTarea.titulo?.trim()) return;
-    this.tareas.push({ id: this.nextId++, titulo: this.nuevaTarea.titulo ?? '', descripcion: this.nuevaTarea.descripcion || '', prioridad: this.nuevaTarea.prioridad || 'media', estado: 'pendiente', fechaLimite: this.nuevaTarea.fechaLimite || new Date(Date.now() + 7*86400000).toISOString().slice(0,10), asignadoA: this.nuevaTarea.asignadoA || 'Sin asignar', categoria: this.nuevaTarea.categoria || 'Operación Clínica' });
-    this.persistirTareas();
-    this.cerrarModal();
+  async guardarTarea(): Promise<void> {
+    const title = this.nuevaTarea.titulo?.trim();
+    if (!title || this.taskBusy) return;
+    this.taskBusy = true;
+    this.taskNotice = '';
+    this.taskActionError = '';
+    const input: DashboardTaskInput = {
+      title,
+      description: this.nuevaTarea.descripcion?.trim() ?? '',
+      priority: this.nuevaTarea.prioridad ?? 'media',
+      status: 'pendiente',
+      due_date: this.nuevaTarea.fechaLimite || null,
+      category: this.nuevaTarea.categoria?.trim() || 'Operación Clínica',
+    };
+    try {
+      const created = await this.clinicalPortal.createDashboardTask(input);
+      this.tareas = [...this.tareas, this.toTarea(created)];
+      this.taskNotice = 'Tarea creada correctamente.';
+      this.cerrarModal();
+    } catch (error) {
+      this.taskActionError = error instanceof Error ? error.message : 'No se pudo crear la tarea.';
+    } finally {
+      this.taskBusy = false;
+    }
+  }
+
+  private actualizarGraficaMensual(): void {
+    const metricMonths = new Map(
+      (this.dashboardMetrics?.monthlyMeasurements ?? []).map((month) => [month.month, month.count]),
+    );
+    const months = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date();
+      date.setUTCDate(1);
+      date.setUTCMonth(date.getUTCMonth() - (5 - index));
+      const label = date.toLocaleDateString('es-MX', { month: 'short', timeZone: 'UTC' });
+      return { label, year: date.getUTCFullYear(), month: date.getUTCMonth() };
+    });
+    const reportCounts = new Map<string, number>();
+    for (const report of this.portalReports) {
+      const date = this.reportDate(report);
+      if (!date) continue;
+      const key = `${date.getUTCFullYear()}-${date.getUTCMonth()}`;
+      reportCounts.set(key, (reportCounts.get(key) ?? 0) + 1);
+    }
+    this.graficaMensual = months.map(({ label, year, month }) => {
+      const metricLabel = label.replace(/\.$/, '').toLowerCase();
+      const measurements = [...metricMonths.entries()].find(([name]) =>
+        name.replace(/\.$/, '').toLowerCase() === metricLabel,
+      )?.[1] ?? 0;
+      return {
+        mes: label,
+        mediciones: measurements,
+        reportes: reportCounts.get(`${year}-${month}`) ?? 0,
+      };
+    });
+  }
+
+  private reportDate(report: Record<string, unknown>): Date | null {
+    const raw = report['createdAt'] ?? report['created_at'] ?? report['timestamp'];
+    const value = typeof raw === 'object' && raw !== null && 'seconds' in raw
+      ? Number((raw as { seconds: unknown }).seconds) * 1000
+      : raw;
+    if (typeof value !== 'string' && typeof value !== 'number') return null;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 }

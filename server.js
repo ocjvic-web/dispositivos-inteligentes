@@ -188,8 +188,26 @@ const state = {
       plataforma: 'LG webOS',
       resolucion: '4K HDR',
       sala: 'Sala de telemetría',
-      estado: 'Emparejado',
-      appActiva: 'Dashboard de signos vitales',
+      estado: 'Disponible',
+      appActiva: 'BioMedica TV Hub',
+    },
+    {
+      id: 'tv-samsung-01',
+      nombre: 'Samsung Smart TV',
+      plataforma: 'Samsung Tizen',
+      resolucion: '4K UHD',
+      sala: 'Sala de espera',
+      estado: 'Disponible',
+      appActiva: 'BioMedica TV Hub',
+    },
+    {
+      id: 'tv-android-01',
+      nombre: 'Android TV',
+      plataforma: 'Android TV',
+      resolucion: '4K UHD',
+      sala: 'Consultorio 2',
+      estado: 'Disponible',
+      appActiva: 'BioMedica TV Hub',
     },
   ],
   activeWearableId: '',
@@ -515,6 +533,7 @@ const server = http.createServer(async (req, res) => {
       wearables: state.wearables,
       wearable: pickWearable(state.activeWearableId),
       tv: pickTv(state.activeTvId),
+      tvs: state.tvs,
       activeWearableId: state.activeWearableId,
       tvPaired: state.tvPaired,
       lastTelemetry: state.lastTelemetry,
@@ -653,8 +672,18 @@ const server = http.createServer(async (req, res) => {
 
   if (pathname === '/api/pair' && req.method === 'POST') {
     const body = await readBody(req);
-    const wearable = ensureWearable(body.wearableId, body.source, body.wearableFormFactor);
-    const tv = pickTv(body.tvId);
+    const wearableId = String(body.wearableId || '').trim();
+    const tvId = String(body.tvId || '').trim();
+    if (!wearableId || !tvId) {
+      sendJson(res, 400, { error: 'wearableId and tvId are required' });
+      return;
+    }
+    const tv = state.tvs.find((item) => item.id === tvId);
+    if (!tv) {
+      sendJson(res, 404, { error: 'Screen not found' });
+      return;
+    }
+    const wearable = ensureWearable(wearableId, body.source, body.wearableFormFactor);
     state.activeWearableId = wearable.id;
     state.activeTvId = tv.id;
     state.tvPaired = true;
@@ -865,7 +894,7 @@ const server = http.createServer(async (req, res) => {
     tv.estado = 'Disponible';
     tv.appActiva = 'BioMedica TV Hub';
     state.tvPaired = false;
-    sendJson(res, 200, { ok: true, message: 'Sesión webOS desconectada' });
+    sendJson(res, 200, { ok: true, message: 'Dispositivos desconectados' });
     return;
   }
 

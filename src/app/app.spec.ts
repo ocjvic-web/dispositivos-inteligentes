@@ -89,6 +89,71 @@ describe('App', () => {
     expect(fixture.nativeElement.textContent).toContain('Catálogo de Wearables Biomédicos');
   });
 
+  it('renders the task board with persisted task states and no demo widget', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.portalProfile = {
+      id: 'doctor-user',
+      email: 'doctor@example.com',
+      first_name: 'Médico',
+      last_name: 'Prueba',
+      role: 'doctor',
+      is_active: true,
+    };
+    app.tareas = [{
+      id: 'task-1',
+      titulo: 'Revisar mediciones',
+      descripcion: 'Validar lecturas recientes.',
+      prioridad: 'alta',
+      estado: 'en_progreso',
+      fechaLimite: '2026-11-20',
+      asignadoA: 'Médico Prueba',
+      categoria: 'Monitoreo',
+    }];
+    fixture.detectChanges();
+    app.vistaActiva = 'dashboard';
+    fixture.detectChanges();
+
+    const dashboard = fixture.nativeElement.querySelector('.dashboard-wrapper') as HTMLElement;
+    expect(dashboard.querySelectorAll('.kanban-column').length).toBe(4);
+    expect(dashboard.textContent).toContain('Revisar mediciones');
+    expect(dashboard.textContent).not.toContain('StatsWidget');
+    expect(dashboard.textContent).not.toContain('microapp Flutter');
+  });
+
+  it('derives platform statistics from available data instead of fixed examples', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.portalProfile = {
+      id: 'doctor-user',
+      email: 'doctor@example.com',
+      first_name: 'Médico',
+      last_name: 'Prueba',
+      role: 'doctor',
+      is_active: true,
+    };
+    app.dashboardMetrics = {
+      patientCount: 7,
+      measurementCount: 12,
+      monthlyMeasurements: [],
+    };
+    app.reportStatsAvailable = true;
+    app.portalReports = [{ id: 'report-1' }, { id: 'report-2' }, { id: 'report-3' }];
+    app.wearables = [{
+      id: 'wearable-1',
+      nombre: 'Reloj de prueba',
+      modelo: 'Round',
+      estado: 'Conectado',
+      bateria: 80,
+      ritmoCardiaco: 72,
+      spo2: 98,
+      temperatura: 36.5,
+      ubicacion: 'Prueba',
+    }];
+
+    expect(app.statsHome.map((stat) => stat.valor)).toEqual(['7', '1', '12', '3']);
+  });
+
   it('opens the current user profile for patients, doctors, and administrators', () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
