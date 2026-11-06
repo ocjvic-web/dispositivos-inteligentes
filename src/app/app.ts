@@ -178,9 +178,7 @@ export class App implements OnInit, OnDestroy {
   tvWallUrl = '/tv';
   apkDownloadUrl = '/downloads/smartwatch_secure_auth_app.apk';
   flutterDashboardUrl = '/assets/flutter-dashboard/index.html';
-  flutterWearableUrl = '/assets/flutter-wearable/index.html';
   flutterDashboardDisponible = false;
-  flutterWearableDisponible = false;
   lastTelemetry: TelemetrySnapshot = {
     wearableId: '',
     heartRate: 0,
@@ -439,7 +437,7 @@ export class App implements OnInit, OnDestroy {
       return [
         { label: 'Inicio', vista: 'inicio' },
         { label: 'Wearables', vista: 'wearable' },
-        { label: 'Smart TV', vista: 'tvwall' },
+        { label: 'Turnos', vista: 'tvwall' },
         { label: 'Dashboard', vista: 'dashboard' },
         { label: 'Conexiones', vista: 'webos' },
         { label: 'Chats', vista: 'doctor-chats' },
@@ -450,7 +448,7 @@ export class App implements OnInit, OnDestroy {
       { label: 'Inicio', vista: 'inicio' },
       { label: 'Dashboard', vista: 'dashboard' },
       { label: 'Wearables', vista: 'wearable' },
-      { label: 'Smart TV', vista: 'tvwall' },
+      { label: 'Turnos', vista: 'tvwall' },
       { label: 'Conexiones', vista: 'webos' },
       { label: 'Estadísticas', vista: 'estadisticas' },
       { label: 'Contacto', vista: 'contacto' },
@@ -527,7 +525,7 @@ export class App implements OnInit, OnDestroy {
     if (role === 'doctor') {
       return [
         'inicio', 'dashboard', 'wearable', 'tvwall', 'webos', 'doctor-chats',
-        'support',
+        'support', 'patient-profile',
       ].includes(vista);
     }
 
@@ -548,12 +546,11 @@ export class App implements OnInit, OnDestroy {
     this.tvWallUrl = `${window.location.origin}/tv`;
     this.apkDownloadUrl = `${window.location.origin}/downloads/smartwatch_secure_auth_app.apk`;
     this.flutterDashboardUrl = `${window.location.origin}/assets/flutter-dashboard/index.html`;
-    this.flutterWearableUrl = `${window.location.origin}/assets/flutter-wearable/index.html`;
     this.sincronizarRuta();
     this.cargarTareas();
     this.sliderInterval = setInterval(() => { this.heroSlide = (this.heroSlide + 1) % this.heroSlides.length; }, 5500);
     await this.initializePortal();
-    await Promise.all([this.cargarEstadoPuente(), this.cargarTurnosTv(), this.verificarMicroappsFlutter()]);
+    await Promise.all([this.cargarEstadoPuente(), this.cargarTurnosTv(), this.verificarMicroappDashboard()]);
     this.bridgeInterval = setInterval(() => {
       void this.cargarEstadoPuente();
       void this.cargarTurnosTv();
@@ -678,13 +675,10 @@ export class App implements OnInit, OnDestroy {
     return payload as T;
   }
 
-  private async verificarMicroappsFlutter(): Promise<void> {
-    const checks = await Promise.all([
-      fetch(this.flutterDashboardUrl, { cache: 'no-store' }).then((response) => response.ok).catch(() => false),
-      fetch(this.flutterWearableUrl, { cache: 'no-store' }).then((response) => response.ok).catch(() => false),
-    ]);
-
-    [this.flutterDashboardDisponible, this.flutterWearableDisponible] = checks;
+  private async verificarMicroappDashboard(): Promise<void> {
+    this.flutterDashboardDisponible = await fetch(this.flutterDashboardUrl, { cache: 'no-store' })
+      .then((response) => response.ok)
+      .catch(() => false);
   }
 
   private dateOffset(daysFromNow: number): string {
@@ -946,16 +940,8 @@ export class App implements OnInit, OnDestroy {
     window.open(this.flutterDashboardUrl, '_blank', 'noopener');
   }
 
-  abrirFlutterWearable(): void {
-    window.open(this.flutterWearableUrl, '_blank', 'noopener');
-  }
-
   recargarFlutterDashboard(): void {
     this.flutterDashboardUrl = `${window.location.origin}/assets/flutter-dashboard/index.html?ts=${Date.now()}`;
-  }
-
-  recargarFlutterWearable(): void {
-    this.flutterWearableUrl = `${window.location.origin}/assets/flutter-wearable/index.html?ts=${Date.now()}`;
   }
 
   etiquetaEstadoTurno(estado: EstadoTurno): string {

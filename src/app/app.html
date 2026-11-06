@@ -30,7 +30,7 @@
       <button class="header-register-button" (click)="openPortalAuth('register')">Registro</button>
     </div>
   } @else {
-    <button class="header-profile-button" (click)="navegar(portalProfile.role === 'patient' ? 'patient-profile' : portalProfile.role === 'doctor' ? 'support' : 'admin')" aria-label="Abrir cuenta">
+    <button class="header-profile-button" (click)="navegar('patient-profile')" aria-label="Abrir mi perfil">
       {{ portalProfile.first_name }}
     </button>
   }
@@ -77,6 +77,7 @@
     <a href="#" (click)="openPortalAuth('login');$event.preventDefault()">Iniciar sesión</a>
     <a href="#" (click)="openPortalAuth('register');$event.preventDefault()">Registro</a>
   } @else {
+    <a href="#" (click)="navegar('patient-profile');$event.preventDefault()">Mi perfil</a>
     <a href="#" (click)="signOutPortal();$event.preventDefault()">Cerrar sesión</a>
   }
 </div>
@@ -464,25 +465,6 @@
         <p class="subtitle">Los modelos ahora se distinguen en la lista como <strong>Round</strong> o <strong>Square</strong>.</p>
       </div>
     </div>
-    <div class="flutter-panel">
-      <div class="flutter-badge"><span>🐦</span><strong>Flutter Wearable Biomédico</strong><span class="flutter-tag">WearableCardWidget.dart</span></div>
-      <p class="flutter-desc">Catálogo Flutter publicado como microapp independiente. Puedes abrirlo aparte o recargar el embebido cuando conectes nuevos relojes.</p>
-      <div class="wearable-actions">
-        <button class="btn-primary" (click)="abrirFlutterWearable()">Abrir catálogo Flutter</button>
-        <button class="btn-secondary" (click)="recargarFlutterWearable()">Recargar catálogo</button>
-      </div>
-      <p class="subtitle">Estado: {{ flutterWearableDisponible ? 'Catálogo Flutter disponible' : 'Catálogo en comprobación o no disponible' }}</p>
-      @if (flutterWearableDisponible) {
-        <div class="flutter-iframe-placeholder-large">
-          <iframe [src]="flutterWearableUrl" title="Flutter Wearable Catalog" class="flutter-iframe"></iframe>
-        </div>
-      } @else {
-        <div class="empty-state">
-          <span>⌚</span>
-          <p>El catálogo Flutter no respondió en este momento. Usa “Abrir catálogo Flutter” para abrirlo directamente.</p>
-        </div>
-      }
-    </div>
   </div>
 }
 
@@ -545,9 +527,9 @@
   <div class="tvwall-wrapper">
     <section class="tvwall-hero">
       <div>
-        <div class="section-tag">Pantalla de Sala</div>
+        <div class="section-tag">Turnos</div>
         <h1>Turnos de atención y monitoreo clínico en vivo</h1>
-        <p>Vista diseñada para Smart TV o navegador del profesor desde el emulador: acompaña la web principal con información operacional visible a distancia.</p>
+        <p>Vista de turnos y monitoreo clínico en vivo, diseñada para mostrar información operacional de forma clara a distancia.</p>
       </div>
       <div class="tvwall-pill-row">
         <div class="tvwall-pill">
@@ -819,7 +801,30 @@
       @if (portalError) { <div class="portal-notice" role="status">{{ portalError }}</div> }
       @if (portalStatus) { <div class="portal-status" role="status">{{ portalStatus }}</div> }
 
-      @if (portalProfile.doctor_application_status) {
+      @if (vistaActiva === 'patient-profile') {
+        <section class="portal-card patient-data-panel portal-profile-panel">
+          <div class="portal-profile-heading">
+            <div>
+              <div class="section-tag">Cuenta BioMedica</div>
+              <h3>Mi perfil</h3>
+            </div>
+            <span class="portal-role-badge">{{ portalProfile.role === 'admin' ? 'Administrador' : portalProfile.role === 'doctor' ? 'Médico' : 'Paciente' }}</span>
+          </div>
+          <div class="portal-profile-details">
+            <div class="portal-profile-field"><span>Nombre completo</span><strong>{{ portalProfile.first_name }} {{ portalProfile.last_name }}</strong></div>
+            <div class="portal-profile-field"><span>Correo electrónico</span><strong>{{ portalProfile.email }}</strong></div>
+            <div class="portal-profile-field"><span>Tipo de cuenta</span><strong>{{ portalProfile.role === 'admin' ? 'Administrador' : portalProfile.role === 'doctor' ? 'Médico' : 'Paciente' }}</strong></div>
+            <div class="portal-profile-field"><span>Estado</span><strong>{{ portalProfile.is_active ? 'Activa' : 'Inactiva' }}</strong></div>
+            <div class="portal-profile-field"><span>Fecha de nacimiento</span><strong>{{ portalProfile.date_of_birth || 'No disponible' }}</strong></div>
+            @if (portalProfile.role === 'patient') {
+              <div class="portal-profile-field"><span>Padecimientos registrados</span><strong>{{ portalProfile.chronic_conditions?.join(', ') || 'Ninguno registrado' }}</strong></div>
+            }
+          </div>
+          @if (portalProfile.role !== 'admin') {
+            <button class="btn-secondary" (click)="navegar('support')">Solicitar ayuda con mi cuenta</button>
+          }
+        </section>
+      } @else if (portalProfile.doctor_application_status) {
         <section class="portal-card doctor-application-status">
           <h3>Solicitud de cuenta médica</h3>
           <p>{{ doctorApplicationStatusLabel }}</p>
@@ -1007,15 +1012,6 @@
             }
             @if (portalMeasurements.length === 0 && portalReports.length === 0) { <p>Aún no hay actividad clínica registrada.</p> }
           </section>
-        } @else if (vistaActiva === 'patient-profile') {
-          <section class="portal-card patient-data-panel">
-            <h3>Mi perfil</h3>
-            <div class="portal-data-row"><strong>Nombre</strong><span>{{ portalProfile.first_name }} {{ portalProfile.last_name }}</span></div>
-            <div class="portal-data-row"><strong>Correo</strong><span>{{ portalProfile.email }}</span></div>
-            <div class="portal-data-row"><strong>Fecha de nacimiento</strong><span>{{ portalProfile.date_of_birth || 'No disponible' }}</span></div>
-            <div class="portal-data-row"><strong>Padecimientos registrados</strong><span>{{ portalProfile.chronic_conditions?.join(', ') || 'Ninguno registrado' }}</span></div>
-            <button class="btn-secondary" (click)="navegar('support')">Solicitar ayuda con mi cuenta</button>
-          </section>
         } @else {
         <section class="portal-grid patient-portal-grid">
           <article class="portal-card">
@@ -1068,15 +1064,18 @@
         }
       } @else {
         <section class="portal-grid admin-portal-grid">
-          <article class="portal-card">
+          <article class="portal-card portal-users-card">
             <h3>Usuarios y roles</h3>
             <p class="portal-muted">El primer administrador se configura manualmente en Supabase. No hay alta pública de administradores.</p>
-            <div class="portal-list">
+            <div class="portal-list portal-user-list">
               @for (user of portalUsers; track user.id) {
                 <div class="portal-admin-row">
-                  <div>
+                  <div class="portal-user-identity">
                     <strong>{{ user.first_name }} {{ user.last_name }}</strong>
-                    <span>{{ user.email }} · {{ user.is_active ? 'Activo' : 'Dado de baja' }}</span>
+                    <span>{{ user.email }}</span>
+                    <span class="portal-user-status" [class.portal-user-status-inactive]="!user.is_active">
+                      {{ user.is_active ? 'Activo' : 'Dado de baja' }}
+                    </span>
                   </div>
                   <div class="portal-user-actions">
                     <select [ngModel]="user.role" (ngModelChange)="setPortalUserRole(user, $event)" [name]="'role-' + user.id" [disabled]="portalBusy || user.id === portalProfile.id">
@@ -1297,7 +1296,7 @@
       <h6>Plataforma</h6>
       <a href="#" (click)="navegar('wearable');$event.preventDefault()">Wearables Clínicos</a>
       <a href="#" (click)="navegar('dashboard');$event.preventDefault()">Dashboard Biomédico</a>
-      <a href="#" (click)="navegar('tvwall');$event.preventDefault()">Pantalla Smart TV</a>
+      <a href="#" (click)="navegar('tvwall');$event.preventDefault()">Turnos de atención</a>
       <a href="#" (click)="navegar('estadisticas');$event.preventDefault()">Estadísticas</a>
       <a href="#">Integraciones HL7</a>
     </div>

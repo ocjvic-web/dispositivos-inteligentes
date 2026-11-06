@@ -46,6 +46,7 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 14px;
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(12px);
   background: rgba(255, 255, 255, 0.86);
@@ -53,6 +54,7 @@ a {
 }
 
 .logo-area {
+  flex: 0 0 auto;
   border: 0;
   background: transparent;
   padding: 0;
@@ -82,8 +84,9 @@ a {
 }
 
 .desktop-nav {
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: min(70vw, 900px);
+  max-width: none;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -99,9 +102,9 @@ a {
 .desktop-nav a {
   flex: 0 0 auto;
   white-space: nowrap;
-  padding: 9px 14px;
+  padding: 9px 9px;
   border-radius: var(--r-pill);
-  font-size: 0.84rem;
+  font-size: 0.8rem;
   font-weight: 700;
   letter-spacing: 0.01em;
   color: #30496f;
@@ -120,13 +123,13 @@ a {
 }
 
 /* ── Buscador Fuse.js ─────────────────────────────────────────────────── */
-.fuse-search-wrap { position: relative; display: flex; align-items: center; margin-left: 8px; }
+.fuse-search-wrap { position: relative; display: flex; align-items: center; flex: 0 0 auto; margin-left: 0; }
 .fuse-search-btn {
-  background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.25);
-  color: #fff; border-radius: 8px; padding: 7px 12px; font-size: 16px;
+  background: #eef4ff; border: 1px solid var(--line-strong);
+  color: #163f90; border-radius: 8px; padding: 7px 12px; font-size: 16px;
   cursor: pointer; transition: background .2s;
 }
-.fuse-search-btn:hover { background: rgba(255,255,255,0.22); }
+.fuse-search-btn:hover { background: #dce9ff; }
 .fuse-overlay {
   position: fixed; inset: 0; z-index: 900;
   background: rgba(0,0,0,0.35); backdrop-filter: blur(2px);
@@ -1753,6 +1756,20 @@ a {
   .tvwall-card-feature,
   .tvwall-queue-card {
     grid-row: auto;
+  }
+}
+
+@media (max-width: 1440px) {
+  .header .desktop-nav,
+  .header .header-auth-actions,
+  .header .header-profile-button,
+  .header .fuse-search-wrap {
+    display: none;
+  }
+
+  .hamburger {
+    display: block;
+    flex: 0 0 auto;
   }
 }
 

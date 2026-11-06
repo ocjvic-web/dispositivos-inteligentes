@@ -76,13 +76,50 @@ describe('App', () => {
     expect(app.navigationItems.map((item) => item.label)).toEqual([
       'Inicio',
       'Wearables',
-      'Smart TV',
+      'Turnos',
       'Dashboard',
       'Conexiones',
       'Chats',
     ]);
     app.navegar('doctor-chats');
     expect(app.vistaActiva).toBe('doctor-chats');
+    app.navegar('wearable');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).not.toContain('Flutter Wearable Biomédico');
+    expect(fixture.nativeElement.textContent).toContain('Catálogo de Wearables Biomédicos');
+  });
+
+  it('opens the current user profile for patients, doctors, and administrators', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.portalReady = true;
+    app.portalProfile = {
+      id: 'profile-user',
+      email: 'person@example.com',
+      first_name: 'Bio',
+      last_name: 'Medica',
+      role: 'patient',
+      is_active: true,
+      date_of_birth: '1990-01-01',
+      chronic_conditions: ['Asma'],
+    };
+
+    for (const role of ['patient', 'doctor', 'admin'] as const) {
+      app.portalProfile = { ...app.portalProfile, role };
+      app.navegar('inicio');
+      fixture.detectChanges();
+      const profileButton = fixture.nativeElement.querySelector('.header-profile-button') as HTMLButtonElement;
+      profileButton.click();
+      fixture.detectChanges();
+
+      expect(app.vistaActiva).toBe('patient-profile');
+      expect(fixture.nativeElement.textContent).toContain('Mi perfil');
+      expect(fixture.nativeElement.textContent).toContain('Bio Medica');
+      expect(fixture.nativeElement.textContent).toContain('person@example.com');
+      expect(fixture.nativeElement.textContent).toContain(
+        role === 'admin' ? 'Administrador' : role === 'doctor' ? 'Médico' : 'Paciente',
+      );
+    }
   });
 
   it('offers patient and doctor registration with role-specific fields', () => {
