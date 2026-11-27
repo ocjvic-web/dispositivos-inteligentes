@@ -14,16 +14,15 @@
 <body>
   <main>
     <h1>API Reference</h1>
-    <p>Endpoints principales publicados por la demo:</p>
+    <p>Endpoints de pantallas Smart TV publicados por la demo:</p>
     <ul>
-      <li><code>GET /api/status</code> · estado actual del wearable activo</li>
-      <li><code>GET /api/devices</code> · inventario de wearables y TVs</li>
       <li><code>GET /api/tv-feed</code> · feed para la pantalla Smart TV</li>
-      <li><code>POST /api/telemetry</code> · envío de telemetría desde smartwatch</li>
-      <li><code>POST /api/select-wearable</code> · cambia el wearable activo</li>
+      <li><code>GET /api/tv/status</code> · estado de emparejamiento de las pantallas</li>
+      <li><code>POST /api/tv/pair</code> · empareja una pantalla Smart TV</li>
+      <li><code>POST /api/tv/unpair</code> · desvincula una pantalla Smart TV</li>
     </ul>
     <p>Prueba rápida:</p>
-    <p><a href="https://biomedica-smarttv.onrender.com/api/status" target="_blank" rel="noopener">https://biomedica-smarttv.onrender.com/api/status</a></p>
+    <p><a href="https://biomedica-smarttv.onrender.com/api/tv/status" target="_blank" rel="noopener">https://biomedica-smarttv.onrender.com/api/tv/status</a></p>
   </main>
 </body>
 </html>

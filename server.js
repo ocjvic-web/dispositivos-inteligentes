@@ -170,6 +170,7 @@ const initialTelemetry = {
   source: 'cloud-idle',
   timestamp: nowIso(),
 };
+const maxTelemetryHistory = 120;
 
 const state = {
   wearables: [],
@@ -346,8 +347,8 @@ function readBody(req) {
 function serveFile(res, filePath) {
   const ext = path.extname(filePath).toLowerCase();
   const type = mimeTypes[ext] || 'application/octet-stream';
-  // Flutter microapps necesitan poder embeberse como iframe en la misma origin
-  const isFlutterAsset = filePath.includes('flutter-dashboard') || filePath.includes('flutter-wearable');
+  // El panel se puede insertar como iframe desde este mismo origen.
+  const isFlutterAsset = filePath.includes('flutter-dashboard');
   fs.readFile(filePath, (err, data) => {
     if (err) {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -387,7 +388,13 @@ function getTelemetryForWearable(wearableId) {
 }
 
 function getTelemetryHistoryForWearable(wearableId) {
-  return state.telemetryHistoryByWearable[wearableId] || [];
+  const history = state.telemetryHistoryByWearable[wearableId] || [];
+  if (history.length > maxTelemetryHistory) {
+    const trimmed = history.slice(-maxTelemetryHistory);
+    state.telemetryHistoryByWearable[wearableId] = trimmed;
+    return trimmed;
+  }
+  return history;
 }
 
 function syncActiveTelemetry() {
@@ -396,8 +403,33 @@ function syncActiveTelemetry() {
     state.telemetryHistory = [];
     return;
   }
+  const wearableHistory = getTelemetryHistoryForWearable(state.activeWearableId);
   state.lastTelemetry = { ...getTelemetryForWearable(state.activeWearableId) };
-  state.telemetryHistory = [...getTelemetryHistoryForWearable(state.activeWearableId)];
+  state.telemetryHistory = wearableHistory.slice(-maxTelemetryHistory);
+}
+
+function getStatusSnapshot() {
+  return {
+    wearables: state.wearables,
+    wearable: pickWearable(state.activeWearableId),
+    tv: pickTv(state.activeTvId),
+    tvs: state.tvs,
+    activeWearableId: state.activeWearableId,
+    tvPaired: state.tvPaired,
+    lastTelemetry: state.lastTelemetry,
+    telemetryHistory: state.telemetryHistory,
+  };
+}
+
+function getCompactStatusSnapshot() {
+  return {
+    wearable: pickWearable(state.activeWearableId),
+    tv: pickTv(state.activeTvId),
+    activeWearableId: state.activeWearableId,
+    tvPaired: state.tvPaired,
+    lastTelemetry: state.lastTelemetry,
+    telemetryHistory: state.telemetryHistory.slice(-20),
+  };
 }
 
 function pickTv(id) {
@@ -567,16 +599,56 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname === '/api/status' && req.method === 'GET') {
-    syncActiveTelemetry();
+    const compact = url.searchParams.get('compact') === '1';
+    sendJson(res, 200, compact ? getCompactStatusSnapshot() : getStatusSnapshot());
+    return;
+  }
+
+  if (pathname === '/api/tv/status' && req.method === 'GET') {
     sendJson(res, 200, {
-      wearables: state.wearables,
-      wearable: pickWearable(state.activeWearableId),
-      tv: pickTv(state.activeTvId),
       tvs: state.tvs,
-      activeWearableId: state.activeWearableId,
+      activeTvId: state.activeTvId,
       tvPaired: state.tvPaired,
-      lastTelemetry: state.lastTelemetry,
-      telemetryHistory: state.telemetryHistory,
+      tv: pickTv(state.activeTvId),
+    });
+    return;
+  }
+
+  if (pathname === '/api/tv/pair' && req.method === 'POST') {
+    const body = await readBody(req);
+    const tvId = String(body.tvId || '').trim();
+    const tv = state.tvs.find((item) => item.id === tvId);
+    if (!tv) {
+      sendJson(res, 404, { error: 'No se encontró la pantalla seleccionada.' });
+      return;
+    }
+
+    state.activeTvId = tv.id;
+    state.tvPaired = true;
+    tv.estado = 'Emparejado';
+    tv.appActiva = 'BioMedica TV Hub';
+    sendJson(res, 200, { ok: true, activeTvId: tv.id, tvPaired: true, tv });
+    return;
+  }
+
+  if (pathname === '/api/tv/unpair' && req.method === 'POST') {
+    const body = await readBody(req);
+    const tvId = String(body.tvId || state.activeTvId).trim();
+    const tv = state.tvs.find((item) => item.id === tvId);
+    if (!tv) {
+      sendJson(res, 404, { error: 'No se encontró la pantalla seleccionada.' });
+      return;
+    }
+
+    tv.estado = 'Disponible';
+    if (state.activeTvId === tv.id) {
+      state.tvPaired = false;
+    }
+    sendJson(res, 200, {
+      ok: true,
+      activeTvId: state.activeTvId,
+      tvPaired: state.tvPaired,
+      tv,
     });
     return;
   }
@@ -656,8 +728,8 @@ const server = http.createServer(async (req, res) => {
     state.telemetryByWearable[wearableId] = nextTelemetry;
     const history = getTelemetryHistoryForWearable(wearableId);
     history.push(nextTelemetry);
-    if (history.length > 120) {
-      history.shift();
+    if (history.length > maxTelemetryHistory) {
+      history.splice(0, history.length - maxTelemetryHistory);
     }
     state.telemetryHistoryByWearable[wearableId] = history;
 

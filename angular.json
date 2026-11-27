@@ -27,11 +27,6 @@
                 "glob": "**/*",
                 "input": "src/assets/flutter-dashboard",
                 "output": "assets/flutter-dashboard"
-              },
-              {
-                "glob": "**/*",
-                "input": "src/assets/flutter-wearable",
-                "output": "assets/flutter-wearable"
               }
             ],
             "styles": [

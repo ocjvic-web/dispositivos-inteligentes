@@ -122,39 +122,6 @@ a {
   box-shadow: 0 8px 16px rgba(42, 115, 236, 0.32);
 }
 
-/* ── Buscador Fuse.js ─────────────────────────────────────────────────── */
-.fuse-search-wrap { position: relative; display: flex; align-items: center; flex: 0 0 auto; margin-left: 0; }
-.fuse-search-btn {
-  background: #eef4ff; border: 1px solid var(--line-strong);
-  color: #163f90; border-radius: 8px; padding: 7px 12px; font-size: 16px;
-  cursor: pointer; transition: background .2s;
-}
-.fuse-search-btn:hover { background: #dce9ff; }
-.fuse-overlay {
-  position: fixed; inset: 0; z-index: 900;
-  background: rgba(0,0,0,0.35); backdrop-filter: blur(2px);
-}
-.fuse-panel {
-  position: absolute; top: calc(100% + 10px); right: 0;
-  width: 380px; background: #fff; border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.22); z-index: 901; overflow: hidden;
-}
-.fuse-input {
-  width: 100%; padding: 14px 16px; font-size: 15px;
-  border: none; border-bottom: 1px solid #e8eaf6; outline: none;
-  background: #f5f7ff;
-}
-.fuse-results { list-style: none; margin: 0; padding: 6px 0; max-height: 340px; overflow-y: auto; }
-.fuse-result-item {
-  display: flex; align-items: flex-start; gap: 12px;
-  padding: 10px 16px; cursor: pointer; transition: background .15s;
-}
-.fuse-result-item:hover { background: #f0f4ff; }
-.fuse-result-icon { font-size: 22px; flex-shrink: 0; margin-top: 2px; }
-.fuse-result-item strong { display: block; font-size: 13.5px; color: #1a1a2e; }
-.fuse-result-item p { margin: 2px 0 0; font-size: 12px; color: #666; line-height: 1.4; }
-.fuse-empty { padding: 16px; text-align: center; color: #999; font-size: 13px; }
-
 .hamburger {
   display: none;
   border: 0;
@@ -314,7 +281,7 @@ a {
 
 .hero-ctas,
 .cta-btns,
-.wearable-actions,
+.tv-actions,
 .modal-actions {
   display: flex;
   flex-wrap: wrap;
@@ -501,7 +468,6 @@ a {
 .section,
 .page-wrapper,
 .dashboard-wrapper,
-.wearable-wrapper,
 .webos-wrapper {
   width: min(1200px, calc(100% - 32px));
   margin: 0 auto;
@@ -535,7 +501,7 @@ a {
 .section-header h2,
 .page-header h2,
 .dashboard-header h2,
-.wearable-header h2 {
+.tv-settings-header h2 {
   margin: 12px 0 8px;
   font-size: clamp(1.55rem, 3.1vw, 2.36rem);
   letter-spacing: -0.03em;
@@ -609,7 +575,7 @@ a {
 .card:hover,
 .service-card:hover,
 .stat-card:hover,
-.wearable-item:hover {
+.tv-device-item:hover {
   transform: translateY(-2px);
   border-color: #a9c2e9;
   box-shadow: 0 16px 24px rgba(13, 27, 51, 0.12);
@@ -859,27 +825,6 @@ a {
 .legend-dot.blue { background: #1a56c4; }
 .legend-dot.red { background: #d93737; }
 
-.device-row {
-  display: grid;
-  grid-template-columns: 132px 1fr 124px;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 10px;
-}
-
-.device-tipo { font-size: 0.8rem; color: #47608b; font-weight: 700; }
-
-.device-track {
-  height: 10px;
-  border-radius: var(--r-pill);
-  background: #e4ecf9;
-  overflow: hidden;
-}
-
-.device-fill { height: 100%; border-radius: inherit; }
-
-.device-val { text-align: right; font-size: 0.8rem; font-weight: 700; }
-
 .stats-cta {
   margin-top: 12px;
   padding: 14px;
@@ -890,7 +835,7 @@ a {
 }
 
 .dashboard-header,
-.wearable-header {
+.tv-settings-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -1138,13 +1083,13 @@ a {
   font-size: 1.8rem;
 }
 
-.wearable-list {
+.tv-device-list {
   display: flex;
   flex-direction: column;
   gap: 9px;
 }
 
-.wearable-item {
+.tv-device-item {
   width: 100%;
   text-align: left;
   border-radius: 14px;
@@ -1155,23 +1100,23 @@ a {
   transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
-.wearable-item.active {
+.tv-device-item.active {
   border-color: #94b5ea;
   box-shadow: 0 12px 18px rgba(24, 88, 200, 0.16);
 }
 
-.wearable-item-top {
+.tv-device-item-top {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 10px;
 }
 
-.wearable-item-top strong {
+.tv-device-item-top strong {
   font-size: 0.92rem;
 }
 
-.wearable-state {
+.tv-device-state {
   border-radius: var(--r-pill);
   background: #edf3fc;
   color: #4f658b;
@@ -1180,52 +1125,17 @@ a {
   font-weight: 700;
 }
 
-.wearable-state.state-connected {
+.tv-device-state.state-connected {
   background: #dcfce7;
   color: #166534;
 }
 
-.wearable-model,
-.wearable-place {
+.tv-device-model,
+.tv-device-place {
   display: block;
   margin-top: 4px;
   color: #566c90;
   font-size: 0.76rem;
-}
-
-.wearable-metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 9px;
-  margin: 12px 0 14px;
-}
-
-.wearable-metrics > div {
-  background: var(--surface-alt);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 10px;
-  min-height: 90px;
-}
-
-.wearable-metrics > div span {
-  font-size: 1.03rem;
-}
-
-.wearable-metrics > div strong {
-  display: block;
-  margin-top: 6px;
-  font-size: 1.15rem;
-  line-height: 1;
-}
-
-.wearable-metrics > div small {
-  display: block;
-  margin-top: 6px;
-  color: #5d7397;
-  font-size: 0.67rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
 }
 
 .webos-status {
@@ -1741,10 +1651,6 @@ a {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .wearable-metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .complementary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1759,11 +1665,10 @@ a {
   }
 }
 
-@media (max-width: 1440px) {
+@media (max-width: 1080px) {
   .header .desktop-nav,
   .header .header-auth-actions,
-  .header .header-profile-button,
-  .header .fuse-search-wrap {
+  .header .header-profile-button {
     display: none;
   }
 
@@ -1777,8 +1682,7 @@ a {
   .desktop-nav { display: none; }
   .hamburger { display: block; }
   .header-auth-actions,
-  .header-profile-button,
-  .fuse-search-wrap { display: none; }
+  .header-profile-button { display: none; }
 
   .mobile-nav { top: 76px; }
 
@@ -1790,14 +1694,6 @@ a {
     grid-template-columns: 1fr;
   }
 
-  .device-row {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
-
-  .device-val {
-    text-align: left;
-  }
 }
 
 @media (max-width: 560px) {
@@ -1817,7 +1713,6 @@ a {
   .section,
   .page-wrapper,
   .dashboard-wrapper,
-  .wearable-wrapper,
   .webos-wrapper,
   .tvwall-wrapper,
   .cta-section,
@@ -1857,7 +1752,7 @@ a {
 
   .hero-ctas,
   .cta-btns,
-  .wearable-actions,
+  .tv-actions,
   .modal-actions,
   .admin-session-actions,
   .admin-turno-actions {
@@ -1883,8 +1778,7 @@ a {
   }
 
   .kpi-grid,
-  .stats-grid,
-  .wearable-metrics {
+  .stats-grid {
     grid-template-columns: 1fr;
   }
 }

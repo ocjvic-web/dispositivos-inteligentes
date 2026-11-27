@@ -1,4 +1,4 @@
-﻿<!-- ══ HEADER ══════════════════════════════════════════════════════════════ -->
+<!-- ══ HEADER ══════════════════════════════════════════════════════════════ -->
 <header class="header">
   <button class="logo-area" (click)="navegar('inicio')" aria-label="Ir al inicio">
     <svg class="logo-svg" width="42" height="42" viewBox="0 0 42 42" xmlns="http://www.w3.org/2000/svg">
@@ -34,35 +34,6 @@
       {{ portalProfile.first_name }}
     </button>
   }
-  <!-- Buscador Fuse.js -->
-  @if (portalProfile?.role === 'doctor' || portalProfile?.role === 'admin') {
-  <div class="fuse-search-wrap">
-    <button class="fuse-search-btn" (click)="abrirBusqueda()" aria-label="Buscar">🔍</button>
-    @if (busquedaAbierta) {
-      <div class="fuse-overlay" (click)="cerrarBusqueda()"></div>
-      <div class="fuse-panel">
-        <input id="fuse-input" class="fuse-input" type="search" placeholder="Buscar en la plataforma…"
-          [(ngModel)]="busquedaQuery" (ngModelChange)="buscar()" (keydown.escape)="cerrarBusqueda()" />
-        @if (busquedaResultados.length > 0) {
-          <ul class="fuse-results">
-            @for (r of busquedaResultados; track r.titulo) {
-              <li class="fuse-result-item" (click)="irAResultado(r)">
-                <span class="fuse-result-icon">{{ r.icon }}</span>
-                <div>
-                  <strong>{{ r.titulo }}</strong>
-                  <p>{{ r.descripcion }}</p>
-                </div>
-              </li>
-            }
-          </ul>
-        } @else if (busquedaQuery.length >= 2) {
-          <p class="fuse-empty">Sin resultados para "{{ busquedaQuery }}"</p>
-        }
-      </div>
-    }
-  </div>
-  }
-
   <button class="hamburger" (click)="toggleMenu()" [class.open]="menuAbierto" aria-label="Menú">
     <span></span><span></span><span></span>
   </button>
@@ -268,24 +239,6 @@
           <div class="empty-state"><span>📊</span><p>Aún no hay registros para mostrar.</p></div>
         }
       </div>
-      <div class="chart-card">
-        <h3>Wearables registrados por modelo</h3>
-        @if (dispositivosTipo.length > 0) {
-          <div class="device-bars">
-            @for (d of dispositivosTipo; track d.tipo) {
-              <div class="device-row">
-                <span class="device-tipo">{{ d.tipo }}</span>
-                <div class="device-track">
-                  <div class="device-fill" [style.width.%]="porcentaje(d.cantidad)" [style.background]="d.color"></div>
-                </div>
-                <span class="device-val" [style.color]="d.color">{{ d.cantidad }} ({{ porcentaje(d.cantidad) }}%)</span>
-              </div>
-            }
-          </div>
-        } @else {
-          <div class="empty-state"><span>⌚</span><p>No hay wearables registrados.</p></div>
-        }
-      </div>
       <div class="stats-cta">
         <p>¿Quieres integrar estos datos en tu institución?</p>
         <button class="btn-primary" (click)="navegar('contacto')">Contactar ahora</button>
@@ -423,74 +376,14 @@
   }
 }
 
-<!-- ══ VISTA: WEARABLE ══════════════════════════════════════════════════════ -->
-@if (vistaActiva === 'wearable') {
-  <div class="wearable-wrapper">
-    <div class="wearable-header">
-      <div>
-        <h2>Catálogo de Wearables Biomédicos</h2>
-        <p class="subtitle">Monitoreo de signos vitales y dispositivos clínicos conectados</p>
-      </div>
-      <div class="webos-status" [class.webos-paired]="puenteActivo">
-        <strong>{{ puenteActivo ? 'Wearables remotos activos' : 'Sin wearables remotos' }}</strong>
-        <span>{{ puenteMensaje }}</span>
-      </div>
-    </div>
-    <div class="device-overview-grid">
-      <div class="device-list-card">
-        <div class="section-tag">Wearable activo</div>
-        <h3>Selecciona tu dispositivo</h3>
-        <div class="wearable-list">
-          @if (wearables.length === 0) {
-            <div class="empty-state">
-              <span>⌚</span>
-              <p>Aún no hay wearables conectados. Abre la aplicación del reloj para registrar un dispositivo.</p>
-            </div>
-          }
-          @for (wearable of wearables; track wearable.id) {
-            <button class="wearable-item" [class.active]="wearableSeleccionadoId === wearable.id" (click)="seleccionarWearable(wearable.id)">
-              <div class="wearable-item-top">
-                <strong>{{ wearable.nombre }}</strong>
-                <span class="wearable-state" [class.state-connected]="wearable.estado==='Conectado'">{{ wearable.estado }}</span>
-              </div>
-              <span class="wearable-model">{{ wearable.modelo }}</span>
-              <span class="wearable-place">{{ wearable.ubicacion }}</span>
-            </button>
-          }
-        </div>
-      </div>
-      <div class="device-detail-card">
-        <div class="section-tag">Telemetría en vivo</div>
-        <h3>{{ wearableSeleccionado.nombre }}</h3>
-        <p class="subtitle">{{ wearableSeleccionado.modelo }} · {{ wearableSeleccionado.ubicacion }}</p>
-        <div class="wearable-metrics">
-          <div><span>🔋</span><strong>{{ wearableSeleccionado.bateria }}%</strong><small>Batería</small></div>
-          <div><span>❤️</span><strong>{{ wearableSeleccionado.ritmoCardiaco }}</strong><small>bpm</small></div>
-          <div><span>🫁</span><strong>{{ wearableSeleccionado.spo2 }}%</strong><small>SpO2</small></div>
-          <div><span>🌡️</span><strong>{{ wearableSeleccionado.temperatura }}°C</strong><small>Temp.</small></div>
-          <div><span>👣</span><strong>{{ lastTelemetry.steps ?? 0 }}</strong><small>Pasos</small></div>
-          <div><span>😮‍💨</span><strong>{{ lastTelemetry.respiratoryRate ?? 0 }}</strong><small>rpm</small></div>
-          <div><span>📈</span><strong>{{ lastTelemetry.hrv ?? 0 }}</strong><small>HRV ms</small></div>
-          <div><span>📶</span><strong>{{ lastTelemetry.signalQuality ?? 0 }}%</strong><small>Señal</small></div>
-        </div>
-        <p class="subtitle">Fuente: {{ lastTelemetry.source ?? 'N/A' }} · Secuencia: {{ lastTelemetry.sequence ?? 0 }}</p>
-        <div class="wearable-actions">
-          <button class="btn-primary" (click)="navegar('webos')">Configurar conexión</button>
-          <button class="btn-secondary" (click)="navegar('dashboard')">Abrir dashboard</button>
-        </div>
-      </div>
-    </div>
-  </div>
-}
-
 <!-- ══ VISTA: LG WEBOS ═════════════════════════════════════════════════════ -->
 @if (vistaActiva === 'webos') {
   <div class="webos-wrapper">
-    <div class="wearable-header">
+    <div class="tv-settings-header">
       <div>
         <div class="section-tag">Conexiones</div>
-        <h2>Conexiones de dispositivos</h2>
-        <p class="subtitle">Selecciona un wearable y una pantalla registrada para asociarlos.</p>
+        <h2>Pantallas clínicas</h2>
+        <p class="subtitle">Administra las pantallas Smart TV que muestran turnos e indicadores clínicos.</p>
       </div>
       <div class="webos-status" [class.webos-paired]="tvSeleccionadaEmparejada">
         <strong>{{ tvSeleccionadaEmparejada ? 'Conectado' : 'Sin conexión' }}</strong>
@@ -502,15 +395,15 @@
       <div class="device-list-card">
         <div class="section-tag">Smart TVs</div>
         <h3>Selecciona una pantalla</h3>
-        <div class="wearable-list tv-list">
+        <div class="tv-device-list">
           @for (tv of tvs; track tv.id) {
-            <button class="wearable-item" [class.active]="tvSeleccionadaId === tv.id" (click)="seleccionarTv(tv.id)">
-              <div class="wearable-item-top">
+            <button class="tv-device-item" [class.active]="tvSeleccionadaId === tv.id" (click)="seleccionarTv(tv.id)">
+              <div class="tv-device-item-top">
                 <strong>{{ tv.nombre }}</strong>
-                <span class="wearable-state" [class.state-connected]="tv.estado==='Emparejado'">{{ tv.estado }}</span>
+                <span class="tv-device-state" [class.state-connected]="tv.estado==='Emparejado'">{{ tv.estado }}</span>
               </div>
-              <span class="wearable-model">{{ tv.plataforma }} · {{ tv.resolucion }}</span>
-              <span class="wearable-place">{{ tv.sala }}</span>
+              <span class="tv-device-model">{{ tv.plataforma }} · {{ tv.resolucion }}</span>
+              <span class="tv-device-place">{{ tv.sala }}</span>
             </button>
           }
         </div>
@@ -521,22 +414,30 @@
         <p class="subtitle">{{ tvSeleccionada.plataforma }} · {{ tvSeleccionada.resolucion }} · {{ tvSeleccionada.sala }}</p>
         @if (tvSeleccionadaWebOSActiva) {
           <div class="tv-snapshot">
-          <div class="tv-screen">
-            <div class="tv-screen-badge">BioMedica · webOS</div>
-            <div class="tv-screen-title">{{ wearableSeleccionado.nombre }}</div>
-            <div class="tv-screen-body">{{ wearableSeleccionado.ritmoCardiaco }} bpm · {{ wearableSeleccionado.spo2 }}% SpO2 · {{ wearableSeleccionado.temperatura }}°C</div>
-            <div class="tv-screen-body">Estrés {{ lastTelemetry.stress ?? 0 }}% · Perfusión {{ lastTelemetry.perfusionIndex ?? 0 }} · Sec {{ lastTelemetry.sequence ?? 0 }}</div>
+            <div class="tv-screen">
+              <div class="tv-screen-badge">BioMedica · webOS</div>
+              <div class="tv-screen-title">{{ latestClinicalPatientName }}</div>
+              @if (latestClinicalMeasurement; as measurement) {
+                <div class="tv-screen-body">
+                  {{ measurement['heart_rate_bpm'] ?? '—' }} bpm ·
+                  {{ measurement['oxygen_saturation_percent'] ?? '—' }}% SpO₂ ·
+                  {{ measurement['body_temperature_celsius'] ?? '—' }}°C
+                </div>
+                <div class="tv-screen-body">{{ formatPortalDate(measurement['reading_at']) }}</div>
+              } @else {
+                <div class="tv-screen-body">Sin mediciones móviles recientes</div>
+              }
+            </div>
           </div>
-        </div>
         }
         @if (deviceNotice) { <div class="portal-alert portal-alert-success" role="status">{{ deviceNotice }}</div> }
         @if (deviceError) { <div class="portal-alert portal-alert-error" role="alert">{{ deviceError }}</div> }
-        <div class="wearable-actions">
-          <button class="btn-primary" (click)="conectarDispositivo()" [disabled]="deviceBusy || tvSeleccionadaEmparejada || !wearableSeleccionadoId">
-            {{ deviceBusy ? 'Conectando…' : 'Conectar dispositivos' }}
+        <div class="tv-actions">
+          <button class="btn-primary" (click)="conectarTv()" [disabled]="deviceBusy || tvSeleccionadaEmparejada">
+            {{ deviceBusy ? 'Vinculando…' : 'Vincular pantalla' }}
           </button>
           <button class="btn-secondary" (click)="abrirPantallaTv()">Abrir pantalla TV</button>
-          <button class="btn-secondary" (click)="desconectarDispositivo()" [disabled]="deviceBusy || !tvSeleccionadaEmparejada">Desconectar</button>
+          <button class="btn-secondary" (click)="desconectarTv()" [disabled]="deviceBusy || !tvSeleccionadaEmparejada">Desvincular pantalla</button>
         </div>
       </div>
     </div>
@@ -558,8 +459,8 @@
           <strong>{{ turnoActual?.codigo ?? 'Sin turno activo' }}</strong>
         </div>
         <div class="tvwall-pill">
-          <span>Wearable</span>
-          <strong>{{ wearableSeleccionado.nombre }}</strong>
+          <span>Último registro</span>
+          <strong>{{ latestClinicalPatientName }}</strong>
         </div>
         <div class="tvwall-pill">
           <span>TV enlazada</span>
@@ -587,16 +488,18 @@
 
       <article class="tvwall-card">
         <div class="tvwall-card-head">
-          <span class="section-tag">Telemetría</span>
+          <span class="section-tag">Signos vitales de la app</span>
           <span class="tv-screen-badge">Live</span>
         </div>
         <div class="tv-vitals-grid">
-          <div><span>Frecuencia</span><strong>{{ lastTelemetry.heartRate }} bpm</strong></div>
-          <div><span>SpO2</span><strong>{{ lastTelemetry.spo2 }}%</strong></div>
-          <div><span>Temp</span><strong>{{ lastTelemetry.temperature }}°C</strong></div>
-          <div><span>Batería</span><strong>{{ lastTelemetry.battery }}%</strong></div>
+          <div><span>Frecuencia</span><strong>{{ latestClinicalMeasurement?.['heart_rate_bpm'] ?? '—' }} bpm</strong></div>
+          <div><span>SpO₂</span><strong>{{ latestClinicalMeasurement?.['oxygen_saturation_percent'] ?? '—' }}%</strong></div>
+          <div><span>Temperatura</span><strong>{{ latestClinicalMeasurement?.['body_temperature_celsius'] ?? '—' }}°C</strong></div>
+          <div><span>Paciente</span><strong>{{ latestClinicalPatientName }}</strong></div>
         </div>
-        <p class="tvwall-source">Fuente {{ lastTelemetry.source ?? 'bridge' }} · secuencia {{ lastTelemetry.sequence ?? 0 }}</p>
+        <p class="tvwall-source">
+          {{ latestClinicalMeasurement ? formatPortalDate(latestClinicalMeasurement['reading_at']) : 'Sin mediciones registradas' }}
+        </p>
       </article>
 
       <article class="tvwall-card">
@@ -635,8 +538,8 @@
         <div class="tv-vitals-grid tv-vitals-grid-compact">
           <div><span>Atendidos</span><strong>{{ turnosFinalizadosHoy }}</strong></div>
           <div><span>TV</span><strong>{{ tvEmparejada ? 'Online' : 'Standby' }}</strong></div>
-          <div><span>Señal</span><strong>{{ lastTelemetry.signalQuality ?? 0 }}%</strong></div>
-          <div><span>Estrés</span><strong>{{ lastTelemetry.stress ?? 0 }}%</strong></div>
+          <div><span>Reportes</span><strong>{{ portalReports.length }}</strong></div>
+          <div><span>Mediciones</span><strong>{{ portalMeasurements.length }}</strong></div>
         </div>
       </article>
     </section>
@@ -820,8 +723,43 @@
         </div>
       </section>
 
-      @if (portalError) { <div class="portal-notice" role="status">{{ portalError }}</div> }
+      @if (portalError) { <div class="portal-notice portal-alert-error" role="alert">{{ portalError }}</div> }
       @if (portalStatus) { <div class="portal-status" role="status">{{ portalStatus }}</div> }
+      @if (incomingClinicalCall) {
+        <section class="portal-card clinical-call-invitation" role="alert">
+          <div>
+            <div class="section-tag">Llamada entrante</div>
+            <h3>Personal clínico solicita una videollamada</h3>
+            <p>La invitación vence {{ formatPortalDate(incomingClinicalCall.expires_at) }}.</p>
+          </div>
+          <div class="clinical-call-actions">
+            <button class="btn-primary" (click)="respondToClinicalCall(incomingClinicalCall, 'accepted')" [disabled]="portalBusy">
+              Aceptar llamada
+            </button>
+            <button class="btn-secondary" (click)="respondToClinicalCall(incomingClinicalCall, 'declined')" [disabled]="portalBusy">
+              Rechazar
+            </button>
+          </div>
+        </section>
+      }
+      @if (activeClinicalCall; as call) {
+        <section class="portal-card clinical-call-active" role="status">
+          <div>
+            <div class="section-tag">Videollamada</div>
+            <h3>{{ activeClinicalCallPatientName || 'Consulta clínica' }} · {{ clinicalCallStatusLabel(call.status) }}</h3>
+            <p class="clinical-call-safety">
+              Esta llamada usa Jitsi público de demostración. No compartas nombres, diagnósticos ni otra información clínica.
+            </p>
+          </div>
+          @if (call.status === 'accepted') {
+            <a class="btn-primary" [href]="clinicalCallUrl(call)" target="_blank" rel="noopener noreferrer">
+              Entrar a la videollamada
+            </a>
+          } @else if (call.status === 'ringing') {
+            <span class="portal-muted">Esperando respuesta del paciente…</span>
+          }
+        </section>
+      }
 
       @if (vistaActiva === 'patient-profile') {
         <section class="portal-card patient-data-panel portal-profile-panel">
@@ -857,8 +795,11 @@
           </div>
           <p class="portal-muted">
             {{ portalProfile.role === 'admin'
-              ? 'Consulta de solo lectura para administración. La atención y el chat corresponden a médicos verificados y asignados.'
-              : 'Reportes de pacientes que tienes asignados. Abre una conversación clínica para dar seguimiento.' }}
+              ? 'Consulta reportes y mediciones. Puedes iniciar una llamada de demostración con el paciente correspondiente.'
+              : 'Reportes y mediciones de pacientes asignados; puedes dar seguimiento por chat o iniciar una llamada de demostración.' }}
+          </p>
+          <p class="clinical-call-safety">
+            Las llamadas de demostración usan Jitsi público. No compartas datos identificables ni información clínica.
           </p>
           @if (portalReports.length === 0) {
             <p>Aún no hay reportes disponibles para esta cuenta.</p>
@@ -876,14 +817,59 @@
                 @if (report['description']) {
                   <p>{{ report['description'] }}</p>
                 }
+                <span>Estado: {{ reportReviewStatus(report) }}</span>
+                @if (report['reviewObservations']) {
+                  <p><strong>Observaciones médicas:</strong> {{ report['reviewObservations'] }}</p>
+                }
               </div>
-              @if (portalProfile.role === 'doctor') {
-                <button class="btn-primary" (click)="openReportChat(report)" [disabled]="portalBusy">
-                  Abrir chat con paciente
-                </button>
+              @if (portalProfile.role === 'doctor' || portalProfile.role === 'admin') {
+                <div class="clinical-report-actions">
+                  @if (portalProfile.role === 'doctor' && report['reviewStatus'] !== 'reviewed') {
+                    <label [for]="'report-observations-' + report['id']">Observaciones para el paciente</label>
+                    <textarea
+                      [id]="'report-observations-' + report['id']"
+                      [ngModel]="reportObservationDraft(report)"
+                      (ngModelChange)="setReportObservationDraft(report, $event)"
+                      [name]="'report-observations-' + report['id']"
+                      rows="3"
+                      maxlength="1000"
+                      placeholder="Escribe observaciones o recomendaciones de seguimiento."
+                    ></textarea>
+                    <button class="btn-primary" (click)="reviewClinicalReport(report)" [disabled]="portalBusy">
+                      Marcar revisado y guardar
+                    </button>
+                  }
+                  <button class="btn-primary" (click)="startClinicalCallFromReport(report)" [disabled]="portalBusy || !report['ownerUid']">
+                    Atender por videollamada
+                  </button>
+                  @if (portalProfile.role === 'doctor') {
+                    <button class="btn-secondary" (click)="openReportChat(report)" [disabled]="portalBusy">
+                      Abrir chat con paciente
+                    </button>
+                  }
+                </div>
               }
             </article>
           }
+          <section class="clinical-vitals-section">
+            <h4>Signos vitales recientes de la app móvil</h4>
+            <p class="portal-muted">Las mediciones se muestran vinculadas al paciente asignado y a su fecha de captura.</p>
+            @if (visibleClinicalMeasurements.length === 0) {
+              <p>No hay mediciones disponibles para los pacientes autorizados.</p>
+            }
+            @for (measurement of visibleClinicalMeasurements; track measurement['id']) {
+              <article class="clinical-vitals-row">
+                <strong>{{ measurementPatientName(measurement) }}</strong>
+                <span>{{ formatPortalDate(measurement['reading_at']) }}</span>
+                <span>FC {{ measurement['heart_rate_bpm'] ?? '—' }} bpm</span>
+                <span>SpO₂ {{ measurement['oxygen_saturation_percent'] ?? '—' }}%</span>
+                @if (measurement['body_temperature_celsius'] !== null && measurement['body_temperature_celsius'] !== undefined) {
+                  <span>Temp. {{ measurement['body_temperature_celsius'] }} °C</span>
+                }
+                <span>{{ measurement['device_name'] ?? 'App BioMedica' }}</span>
+              </article>
+            }
+          </section>
         </section>
       } @else if (portalProfile.doctor_application_status) {
         <section class="portal-card doctor-application-status">
@@ -1035,20 +1021,26 @@
                 <span>{{ report['prioridad'] ?? report['priority'] ?? '' }}</span>
                 <span>{{ formatPortalDate(report['createdAt'] ?? report['created_at'] ?? report['timestamp']) }}</span>
                 <p>{{ report['descripcion'] ?? report['description'] ?? '' }}</p>
+                <span>Estado: {{ reportReviewStatus(report) }}</span>
+                @if (report['reviewObservations']) {
+                  <p><strong>Observaciones médicas:</strong> {{ report['reviewObservations'] }}</p>
+                }
               </article>
             }
           </section>
         } @else if (vistaActiva === 'patient-vitals') {
           <section class="portal-card patient-data-panel">
             <h3>Mis signos vitales</h3>
-            <p class="portal-muted">Mediciones sincronizadas desde la aplicación móvil y el smartwatch.</p>
+            <p class="portal-muted">Mediciones tomadas en la aplicación móvil y vinculadas a tu cuenta.</p>
             @if (portalMeasurements.length === 0) { <p>No hay mediciones sincronizadas.</p> }
             @for (measurement of portalMeasurements; track measurement['id']) {
               <div class="portal-data-row">
                 <span>{{ formatPortalDate(measurement['reading_at']) }}</span>
                 <span>Frecuencia cardiaca: {{ measurement['heart_rate_bpm'] ?? '—' }} bpm</span>
                 <span>SpO₂: {{ measurement['oxygen_saturation_percent'] ?? '—' }}%</span>
-                <span>Temperatura: {{ measurement['body_temperature_celsius'] ?? '—' }} °C</span>
+                @if (measurement['body_temperature_celsius'] !== null && measurement['body_temperature_celsius'] !== undefined) {
+                  <span>Temperatura: {{ measurement['body_temperature_celsius'] }} °C</span>
+                }
                 <span>{{ measurement['device_name'] ?? 'Dispositivo' }}</span>
               </div>
             }
@@ -1172,34 +1164,9 @@
             <p class="portal-muted">Antes de aprobar, comprueba los datos en fuentes oficiales. La aprobación interna no sustituye esa validación.</p>
           </article>
 
-          <article class="portal-card">
-            <h3>Asignación y permisos clínicos</h3>
-            <label for="assignment-doctor">Médico</label>
-            <select id="assignment-doctor" [ngModel]="selectedDoctorUid" (ngModelChange)="selectDoctorForAssignment($event)" name="assignmentDoctor">
-              <option value="">Selecciona un médico verificado</option>
-              @for (doctor of doctorsForAssignment; track doctor.id) {
-                @if (isVerifiedDoctor(doctor.id)) {
-                  <option [value]="doctor.id">{{ doctor.first_name }} {{ doctor.last_name }}</option>
-                }
-              }
-            </select>
-            <div class="portal-list">
-              @for (patient of patientsForAssignment; track patient.id) {
-                <label class="portal-check-row">
-                  <input type="checkbox" [checked]="selectedPatientUids.includes(patient.id)" (change)="togglePatientAssignment(patient.id, $any($event.target).checked)" />
-                  <span>{{ patient.first_name }} {{ patient.last_name }} · {{ patient.email }}</span>
-                </label>
-              }
-            </div>
-            <button class="btn-primary" (click)="saveDoctorAssignments()" [disabled]="portalBusy || !selectedDoctorUid">Guardar asignaciones</button>
-          </article>
-
-          <article class="portal-card">
+          <article class="portal-card portal-turns-card">
             <h3>Administrar turnos</h3>
-            <div class="form-group">
-              <label for="turn-code">Código visible</label>
-              <input id="turn-code" [(ngModel)]="turnDraft.ticket_code" name="turnCode" maxlength="24" />
-            </div>
+            <p class="portal-muted">El sistema asigna un código único al registrar cada turno.</p>
             <div class="form-group">
               <label for="turn-patient">Paciente</label>
               <select id="turn-patient" [(ngModel)]="turnDraft.patient_uid" name="turnPatient">
@@ -1222,20 +1189,43 @@
               </div>
               <div class="form-group"><label for="turn-eta">Espera estimada (min)</label><input id="turn-eta" type="number" min="0" max="1440" [(ngModel)]="turnDraft.eta_minutes" name="turnEta" /></div>
             </div>
-            <button class="btn-primary" (click)="createPortalTurn()" [disabled]="portalBusy || !turnDraft.ticket_code.trim() || !turnDraft.patient_uid">Registrar turno</button>
+            <button class="btn-primary" (click)="createPortalTurn()" [disabled]="portalBusy || !turnDraft.patient_uid">Registrar turno</button>
             <div class="portal-list portal-turn-list">
               @for (turn of clinicTurns; track turn.id) {
                 <div class="portal-admin-row">
                   <div><strong>{{ turn.ticket_code }} · {{ turn.service }}</strong><span>{{ turn.room }} · {{ turn.priority }} · {{ turn.status }}</span></div>
                   <div class="portal-turn-actions">
-                    <button class="btn-secondary" (click)="changePortalTurn(turn, 'en_espera')">Espera</button>
-                    <button class="btn-secondary" (click)="changePortalTurn(turn, 'en_atencion')">Atender</button>
-                    <button class="btn-secondary" (click)="changePortalTurn(turn, 'finalizado')">Finalizar</button>
+                    <button class="btn-secondary" (click)="changePortalTurn(turn, 'en_espera')" [disabled]="portalBusy">Espera</button>
+                    <button class="btn-secondary" (click)="changePortalTurn(turn, 'en_atencion')" [disabled]="portalBusy">Atender</button>
+                    <button class="btn-secondary" (click)="changePortalTurn(turn, 'finalizado')" [disabled]="portalBusy">Finalizar</button>
                   </div>
                 </div>
               }
             </div>
           </article>
+
+          <article class="portal-card">
+            <h3>Asignación y permisos clínicos</h3>
+            <label for="assignment-doctor">Médico</label>
+            <select id="assignment-doctor" [ngModel]="selectedDoctorUid" (ngModelChange)="selectDoctorForAssignment($event)" name="assignmentDoctor">
+              <option value="">Selecciona un médico verificado</option>
+              @for (doctor of doctorsForAssignment; track doctor.id) {
+                @if (isVerifiedDoctor(doctor.id)) {
+                  <option [value]="doctor.id">{{ doctor.first_name }} {{ doctor.last_name }}</option>
+                }
+              }
+            </select>
+            <div class="portal-list">
+              @for (patient of patientsForAssignment; track patient.id) {
+                <label class="portal-check-row">
+                  <input type="checkbox" [checked]="selectedPatientUids.includes(patient.id)" (change)="togglePatientAssignment(patient.id, $any($event.target).checked)" />
+                  <span>{{ patient.first_name }} {{ patient.last_name }} · {{ patient.email }}</span>
+                </label>
+              }
+            </div>
+            <button class="btn-primary" (click)="saveDoctorAssignments()" [disabled]="portalBusy || !selectedDoctorUid">Guardar asignaciones</button>
+          </article>
+
         </section>
       }
     }
@@ -1279,7 +1269,7 @@
               <select id="c-servicio" [(ngModel)]="contacto.servicio" name="servicio">
                 <option value="monitoreo">Monitoreo Clínico</option>
                 <option value="fhir">Integración HL7/FHIR</option>
-                <option value="wearable">Wearables Médicos</option>
+                <option value="expediente">Expediente clínico digital</option>
                 <option value="ia">IA Biomédica</option>
                 <option value="soporte">Soporte Técnico</option>
               </select>
@@ -1355,7 +1345,6 @@
     </div>
     <div class="footer-col">
       <h6>Plataforma</h6>
-      <a href="#" (click)="navegar('wearable');$event.preventDefault()">Wearables Clínicos</a>
       <a href="#" (click)="navegar('dashboard');$event.preventDefault()">Dashboard Biomédico</a>
       <a href="#" (click)="navegar('tvwall');$event.preventDefault()">Turnos de atención</a>
       <a href="#" (click)="navegar('estadisticas');$event.preventDefault()">Estadísticas</a>

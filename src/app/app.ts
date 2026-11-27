@@ -1,4 +1,4 @@
-﻿import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { environment } from '../environments/environment';
@@ -8,6 +8,7 @@ import {
   ClinicalMessageType,
   ClinicalPortalService,
   ClinicTurn,
+  ClinicalVideoCall,
   DashboardMetrics,
   DashboardTask,
   DashboardTaskInput,
@@ -20,14 +21,12 @@ import {
   SupportConversation,
   SupportMessage,
 } from './clinical-portal.service';
-import Fuse from 'fuse.js';
 
 export type EstadoTarea = DashboardTaskStatus;
 export type Prioridad = DashboardTaskPriority;
 type VistaActiva =
   | 'inicio'
   | 'dashboard'
-  | 'wearable'
   | 'webos'
   | 'tvwall'
   | 'admin'
@@ -60,18 +59,6 @@ export interface Tarea {
   categoria: string;
 }
 
-interface WearableDevice {
-  id: string;
-  nombre: string;
-  modelo: string;
-  estado: 'Conectado' | 'En espera' | 'Sincronizando';
-  bateria: number;
-  ritmoCardiaco: number;
-  spo2: number;
-  temperatura: number;
-  ubicacion: string;
-}
-
 interface TvDevice {
   id: string;
   nombre: string;
@@ -80,23 +67,6 @@ interface TvDevice {
   sala: string;
   estado: 'Disponible' | 'Emparejado' | 'En espera';
   appActiva: string;
-}
-
-interface TelemetrySnapshot {
-  wearableId: string;
-  heartRate: number;
-  spo2: number;
-  temperature: number;
-  battery: number;
-  steps?: number;
-  stress?: number;
-  respiratoryRate?: number;
-  hrv?: number;
-  signalQuality?: number;
-  perfusionIndex?: number;
-  sequence?: number;
-  source?: string;
-  timestamp?: string;
 }
 
 interface UsuarioAdministrador {
@@ -128,18 +98,6 @@ interface TurnoAtencion {
   updatedAt: string;
 }
 
-const wearablePlaceholder: WearableDevice = {
-  id: 'sin-wearable',
-  nombre: 'Sin wearable conectado',
-  modelo: 'Esperando primer smartwatch remoto',
-  estado: 'En espera',
-  bateria: 0,
-  ritmoCardiaco: 0,
-  spo2: 0,
-  temperatura: 0,
-  ubicacion: 'Conecta un reloj desde Render para verlo aquí',
-};
-
 @Component({
   selector: 'app-root',
   standalone: true,
@@ -157,7 +115,6 @@ export class App implements OnInit, OnDestroy {
   private readonly routeMap: Record<VistaActiva, string> = {
     inicio: '/',
     dashboard: '/dashboard',
-    wearable: '/wearable',
     webos: '/webos',
     tvwall: '/tv',
     admin: '/admin',
@@ -175,34 +132,18 @@ export class App implements OnInit, OnDestroy {
 
   vistaActiva: VistaActiva = 'inicio';
   menuAbierto = false;
-  puenteActivo = false;
-  puenteMensaje = 'Esperando telemetría remota desde Render.';
-  wearableSeleccionadoId = '';
   tvSeleccionadaId = 'tv-lg-01';
   tvEmparejada = false;
-  tvMensaje = 'Selecciona un dispositivo registrado para conectarlo.';
+  tvMensaje = 'Selecciona una pantalla para administrarla.';
   tvWallUrl = '/tv';
   activeTvId = 'tv-lg-01';
   deviceBusy = false;
   deviceNotice = '';
   deviceError = '';
-  lastTelemetry: TelemetrySnapshot = {
-    wearableId: '',
-    heartRate: 0,
-    spo2: 0,
-    temperature: 0,
-    battery: 0,
-    steps: 0,
-    stress: 0,
-    respiratoryRate: 0,
-    hrv: 0,
-    signalQuality: 0,
-    perfusionIndex: 0,
-    sequence: 0,
-    source: 'cloud-idle',
-  };
-
   private bridgeInterval: ReturnType<typeof setInterval> | null = null;
+  private clinicalRefreshInterval: ReturnType<typeof setInterval> | null = null;
+  private refreshingClinicalRecords = false;
+  private refreshingClinicalCalls = false;
   adminToken = '';
   adminBusy = false;
   adminMensaje = 'Acceso restringido a administradores autorizados.';
@@ -311,7 +252,12 @@ export class App implements OnInit, OnDestroy {
   portalDoctors: PortalProfile[] = [];
   portalPatients: PortalProfile[] = [];
   portalReports: Record<string, unknown>[] = [];
+  reportObservationsDraft: Record<string, string> = {};
   portalMeasurements: Record<string, unknown>[] = [];
+  incomingClinicalCall: ClinicalVideoCall | null = null;
+  activeClinicalCall: ClinicalVideoCall | null = null;
+  activeClinicalCallReportId = '';
+  activeClinicalCallPatientName = '';
   portalConversations: ClinicalConversation[] = [];
   portalMessages: ClinicalMessage[] = [];
   selectedPatientUid = '';
@@ -335,12 +281,10 @@ export class App implements OnInit, OnDestroy {
     contactPhone: '',
   };
   turnDraft = {
-    ticket_code: '',
     patient_uid: '',
     service: 'Consulta general',
     room: 'Consultorio 1',
     priority: 'media' as Prioridad,
-    status: 'en_espera' as ClinicTurn['status'],
     eta_minutes: 0,
   };
   turnosPublicError = '';
@@ -360,58 +304,6 @@ export class App implements OnInit, OnDestroy {
   };
 
   toggleMenu() { this.menuAbierto = !this.menuAbierto; }
-
-  // ── Buscador Fuse.js ────────────────────────────────────────────────────
-  busquedaQuery = '';
-  busquedaAbierta = false;
-  busquedaResultados: { titulo: string; descripcion: string; vista: VistaActiva; icon: string }[] = [];
-
-  private readonly _catalogoBusqueda: { titulo: string; descripcion: string; vista: VistaActiva; icon: string }[] = [
-    { titulo: 'Monitor Multiparámetro UCI', descripcion: 'ECG, SpO2, presión arterial y temperatura del paciente en tiempo real.', vista: 'inicio', icon: '🫀' },
-    { titulo: 'Analizador Hematológico', descripcion: 'Biomarcadores y paneles clínicos de laboratorio automatizados.', vista: 'inicio', icon: '🧬' },
-    { titulo: 'Telemetría Biomédica', descripcion: 'Centraliza señales de dispositivos médicos y genera alertas clínicas.', vista: 'inicio', icon: '📡' },
-    { titulo: 'Wearables Clínicos', descripcion: 'Smartwatches y sensores conectados con telemetría en tiempo real.', vista: 'wearable', icon: '⌚' },
-    { titulo: 'Dashboard Clínico', descripcion: 'Panel de tareas y estadísticas para gestión del flujo hospitalario.', vista: 'dashboard', icon: '📋' },
-    { titulo: 'Conexiones', descripcion: 'Vinculación de wearables y pantallas compatibles.', vista: 'webos', icon: '📺' },
-    { titulo: 'Pantalla Smart TV Wall', descripcion: 'Vista de televisión en sala con datos de telemetría en vivo.', vista: 'tvwall', icon: '🖥️' },
-    { titulo: 'Administración de Usuarios', descripcion: 'Panel de control con roles: superadmin, operador y visor.', vista: 'admin', icon: '🔐' },
-    { titulo: 'Estadísticas de la Plataforma', descripcion: 'Métricas de wearables, sesiones, telemetría y actividad clínica.', vista: 'estadisticas', icon: '📊' },
-    { titulo: 'Contacto y Soporte', descripcion: 'Formulario de contacto y datos de soporte técnico biomédico.', vista: 'contacto', icon: '✉️' },
-    { titulo: 'Autenticación PIN Smartwatch', descripcion: 'Login seguro con PIN o biometría en la app del smartwatch.', vista: 'wearable', icon: '🔑' },
-    { titulo: 'Ritmo Cardíaco SpO2', descripcion: 'Monitoreo de frecuencia cardíaca y saturación de oxígeno en sangre.', vista: 'wearable', icon: '❤️' },
-    { titulo: 'Sesión y Seguridad', descripcion: 'Token de sesión con expiración automática a los 15 minutos.', vista: 'admin', icon: '🛡️' },
-  ];
-
-  private _fuse = new Fuse(this._catalogoBusqueda, {
-    keys: ['titulo', 'descripcion'],
-    threshold: 0.4,
-    includeScore: true,
-  });
-
-  buscar(): void {
-    const q = this.busquedaQuery.trim();
-    this.busquedaResultados = q.length < 2
-      ? []
-      : this._fuse.search(q).slice(0, 6).map(r => r.item);
-  }
-
-  irAResultado(item: { vista: VistaActiva }): void {
-    this.navegar(item.vista);
-    this.busquedaQuery = '';
-    this.busquedaResultados = [];
-    this.busquedaAbierta = false;
-  }
-
-  abrirBusqueda(): void {
-    this.busquedaAbierta = true;
-    setTimeout(() => (document.getElementById('fuse-input') as HTMLInputElement)?.focus(), 50);
-  }
-
-  cerrarBusqueda(): void {
-    this.busquedaAbierta = false;
-    this.busquedaQuery = '';
-    this.busquedaResultados = [];
-  }
 
   get navigationItems(): NavigationItem[] {
     const role = this.portalProfile?.role;
@@ -444,7 +336,6 @@ export class App implements OnInit, OnDestroy {
       return [
         { label: 'Inicio', vista: 'inicio' },
         { label: 'Reportes clínicos', vista: 'clinical-reports' },
-        { label: 'Wearables', vista: 'wearable' },
         { label: 'Turnos', vista: 'tvwall' },
         { label: 'Dashboard', vista: 'dashboard' },
         { label: 'Conexiones', vista: 'webos' },
@@ -456,7 +347,6 @@ export class App implements OnInit, OnDestroy {
       { label: 'Inicio', vista: 'inicio' },
       { label: 'Reportes clínicos', vista: 'clinical-reports' },
       { label: 'Dashboard', vista: 'dashboard' },
-      { label: 'Wearables', vista: 'wearable' },
       { label: 'Turnos', vista: 'tvwall' },
       { label: 'Conexiones', vista: 'webos' },
       { label: 'Estadísticas', vista: 'estadisticas' },
@@ -533,7 +423,7 @@ export class App implements OnInit, OnDestroy {
 
     if (role === 'doctor') {
       return [
-        'inicio', 'dashboard', 'wearable', 'tvwall', 'webos', 'doctor-chats',
+        'inicio', 'dashboard', 'tvwall', 'webos', 'doctor-chats',
         'clinical-reports',
         'support', 'patient-profile',
       ].includes(vista);
@@ -548,7 +438,6 @@ export class App implements OnInit, OnDestroy {
   heroSlides = [
     { titulo: 'Centro de Innovación Biomédica', subtitulo: 'Monitoreo clínico de próxima generación con inteligencia artificial para UCI y hospitalización.', cta: 'Explorar Plataforma', img: '/biomedica/hero-clinic.jpg' },
     { titulo: 'Telemetría Hospitalaria en Tiempo Real', subtitulo: 'Centraliza ECG, SpO2 y presión arterial de todos tus dispositivos médicos en un único dashboard.', cta: 'Ver Demostración', img: '/biomedica/product-icu.jpg' },
-    { titulo: 'Wearables Clínicos Conectados', subtitulo: 'Desde pulsioxímetros hasta holters cardiacos: integra y analiza toda tu red de sensores biomédicos.', cta: 'Ver Catálogo', img: '/biomedica/hero-wearable.jpg' },
   ];
 
   async ngOnInit() {
@@ -557,19 +446,24 @@ export class App implements OnInit, OnDestroy {
     this.sincronizarRuta();
     this.sliderInterval = setInterval(() => { this.heroSlide = (this.heroSlide + 1) % this.heroSlides.length; }, 5500);
     await this.initializePortal();
-    await Promise.all([this.cargarEstadoPuente(), this.cargarTurnosTv()]);
+    await Promise.all([this.cargarEstadoTv(), this.cargarTurnosTv()]);
     this.bridgeInterval = setInterval(() => {
-      void this.cargarEstadoPuente();
+      void this.cargarEstadoTv();
       void this.cargarTurnosTv();
       if (this.portalProfile && this.selectedConversationId) {
         void this.loadDoctorMessages(this.selectedConversationId);
       }
+      void this.refreshClinicalCallState();
     }, 5000);
+    this.clinicalRefreshInterval = setInterval(() => {
+      void this.refreshClinicalRecords();
+    }, 15000);
   }
 
   ngOnDestroy() {
     if (this.sliderInterval) clearInterval(this.sliderInterval);
     if (this.bridgeInterval) clearInterval(this.bridgeInterval);
+    if (this.clinicalRefreshInterval) clearInterval(this.clinicalRefreshInterval);
   }
   setSlide(i: number) { this.heroSlide = i; }
   prevSlide() { this.heroSlide = (this.heroSlide - 1 + this.heroSlides.length) % this.heroSlides.length; }
@@ -588,17 +482,13 @@ export class App implements OnInit, OnDestroy {
   footerGaleria = [
     '/biomedica/product-icu.jpg',
     '/biomedica/product-lab.jpg',
-    '/biomedica/hero-wearable.jpg',
   ];
 
   imagenesComplementarias = [
     { titulo: 'Sala UCI', subtitulo: 'Monitoreo continuo y respuesta rápida', img: '/biomedica/hero-clinic.jpg' },
     { titulo: 'Laboratorio Clínico', subtitulo: 'Biomarcadores y automatización', img: '/biomedica/product-lab.jpg' },
-    { titulo: 'Wearables Médicos', subtitulo: 'Sensores biomédicos conectados', img: '/biomedica/hero-wearable.jpg' },
     { titulo: 'IA de Apoyo', subtitulo: 'Predicción y alertas tempranas', img: '/biomedica/product-icu.jpg' },
   ];
-
-  wearables: WearableDevice[] = [];
 
   tvs: TvDevice[] = [
     {
@@ -652,10 +542,14 @@ export class App implements OnInit, OnDestroy {
     return `${environment.apiUrl}${path}`;
   }
 
+  private userFacingError(context: string, error: unknown, fallback: string): string {
+    console.error(context, error);
+    return fallback;
+  }
+
   private rutaInicial(): VistaActiva {
     const pathname = window.location.pathname.toLowerCase();
     if (pathname === '/dashboard') return 'dashboard';
-    if (pathname === '/wearable') return 'wearable';
     if (pathname === '/webos') return 'webos';
     if (pathname === '/tv' || pathname === '/tvwall') return 'tvwall';
     if (pathname === '/admin') return 'admin';
@@ -704,8 +598,11 @@ export class App implements OnInit, OnDestroy {
     const response = await fetch(this.api(path), init);
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
-      const message = typeof payload?.error === 'string' ? payload.error : `HTTP ${response.status}`;
-      throw new Error(message);
+      console.error(`BioMedica API request failed: ${path}`, {
+        status: response.status,
+        error: payload?.error,
+      });
+      throw new Error('No se pudo completar la solicitud. Inténtalo de nuevo.');
     }
     return payload as T;
   }
@@ -714,87 +611,25 @@ export class App implements OnInit, OnDestroy {
     return new Date(Date.now() + (daysFromNow * 86400000)).toISOString().slice(0, 10);
   }
 
-  private fusionarWearables(wearables: Partial<WearableDevice>[]): void {
-    for (const incoming of wearables) {
-      if (!incoming.id) {
-        continue;
-      }
-
-      const index = this.wearables.findIndex((item) => item.id === incoming.id);
-      if (index >= 0) {
-        this.wearables[index] = { ...this.wearables[index], ...incoming };
-        continue;
-      }
-
-      this.wearables.unshift({
-        id: incoming.id,
-        nombre: incoming.nombre ?? `Wearable ${incoming.id.slice(-6).toUpperCase()}`,
-        modelo: incoming.modelo ?? 'Wearable remoto conectado',
-        estado: incoming.estado ?? 'Conectado',
-        bateria: incoming.bateria ?? 100,
-        ritmoCardiaco: incoming.ritmoCardiaco ?? 72,
-        spo2: incoming.spo2 ?? 98,
-        temperatura: incoming.temperatura ?? 36.6,
-        ubicacion: incoming.ubicacion ?? 'Sesion remota',
-      });
-    }
-  }
-
-  private async cargarEstadoPuente(): Promise<void> {
+  private async cargarEstadoTv(): Promise<void> {
     try {
       const data = await this.requestJson<{
-        wearables?: Partial<WearableDevice>[];
-        wearable?: Partial<WearableDevice>;
-        tv?: Partial<TvDevice>;
         tvs?: TvDevice[];
-        activeWearableId?: string;
+        activeTvId?: string;
         tvPaired?: boolean;
-        lastTelemetry?: Partial<TelemetrySnapshot>;
-      }>('/api/status');
-
-      if (data.wearables?.length) {
-        this.fusionarWearables(data.wearables);
-      }
+        tv?: TvDevice;
+      }>('/api/tv/status');
       if (data.tvs?.length) {
         this.tvs = data.tvs;
       }
-
-      if (data.activeWearableId) {
-        this.wearableSeleccionadoId = data.activeWearableId;
-      }
-
-      const wearableId = data.wearable?.id;
-      if (wearableId) {
-        const wearableIndex = this.wearables.findIndex((item) => item.id === wearableId);
-        if (wearableIndex >= 0) {
-          this.wearables[wearableIndex] = { ...this.wearables[wearableIndex], ...data.wearable };
-        }
-      }
-
-      const tvId = data.tv?.id;
-      if (tvId) {
-        const tvIndex = this.tvs.findIndex((item) => item.id === tvId);
-        if (tvIndex >= 0) {
-          this.tvs[tvIndex] = { ...this.tvs[tvIndex], ...data.tv };
-        }
-      }
-
-      if (data.lastTelemetry) {
-        this.lastTelemetry = { ...this.lastTelemetry, ...data.lastTelemetry };
-      }
-
       this.tvEmparejada = Boolean(data.tvPaired);
-      this.activeTvId = data.tv?.id ?? this.activeTvId;
-      this.puenteActivo = Boolean(data.wearable?.id);
-      this.puenteMensaje = data.wearable?.id
-        ? `Conectado a nube · wearable ${data.wearable.nombre ?? 'N/A'} · TV ${data.tv?.nombre ?? 'N/A'} · seq ${this.lastTelemetry.sequence ?? 0}`
-        : 'Sin wearables remotos activos todavía. Abre la app del smartwatch para registrar uno.';
+      this.activeTvId = data.activeTvId ?? data.tv?.id ?? this.activeTvId;
       this.tvMensaje = this.tvEmparejada
-        ? `Dispositivo conectado: ${data.wearable?.nombre ?? 'Wearable'} → ${data.tv?.nombre ?? 'Pantalla'}.`
-        : 'Selecciona un wearable y una pantalla registrada para emparejar.';
-    } catch {
-      this.puenteActivo = false;
-      this.puenteMensaje = 'La nube no está respondiendo temporalmente. Recarga o revisa Render.';
+        ? `${this.tvSeleccionada.nombre} está vinculada a BioMedica TV.`
+        : 'Selecciona una pantalla para vincularla a BioMedica TV.';
+    } catch (error) {
+      console.error('No se pudo cargar el estado de las pantallas.', error);
+      this.tvMensaje = 'No se pudo cargar el estado de las pantallas.';
     }
   }
 
@@ -837,7 +672,8 @@ export class App implements OnInit, OnDestroy {
       this.turnosPublicError = '';
     } catch (error) {
       this.turnosAtencion = [];
-      this.turnosPublicError = error instanceof Error ? error.message : 'No se pudo consultar la cola de turnos.';
+      console.error('No se pudo consultar la cola de turnos.', error);
+      this.turnosPublicError = 'No se pudo consultar la cola de turnos.';
     }
   }
 
@@ -849,7 +685,6 @@ export class App implements OnInit, OnDestroy {
     const patientCount = this.dashboardMetrics?.patientCount.toLocaleString('es-MX') ?? '—';
     return [
       { valor: patientCount, label: 'Pacientes visibles', icon: '🏥', color: '#001ef8' },
-      { valor: this.connectedWearableCount.toLocaleString('es-MX'), label: 'Wearables conectados', icon: '📡', color: '#f80000' },
       { valor: measurementCount, label: 'Mediciones registradas', icon: '💓', color: '#10b981' },
       { valor: reportCount, label: 'Reportes disponibles', icon: '📋', color: '#f59e0b' },
     ];
@@ -859,7 +694,6 @@ export class App implements OnInit, OnDestroy {
     { titulo: 'Telemetría Hospitalaria', desc: 'Monitoreo 24/7 de signos vitales con alertas automáticas y tableros clínicos en tiempo real.', icon: '📊' },
     { titulo: 'Integración HL7/FHIR', desc: 'Interoperabilidad total con sistemas HIS, LIS y EHR mediante estándares internacionales.', icon: '🔗' },
     { titulo: 'IA Biomédica', desc: 'Algoritmos de análisis predictivo sobre señales cardiacas, respiratorias y metabólicas.', icon: '🤖' },
-    { titulo: 'Wearables Clínicos', desc: 'Compatibilidad con más de 200 dispositivos médicos certificados para uso hospitalario.', icon: '⌚' },
     { titulo: 'Seguridad Regulatoria', desc: 'Cumplimiento HIPAA, ISO 27001 y normativas locales para datos de salud.', icon: '🔒' },
     { titulo: 'Soporte 24/7', desc: 'Equipo de ingenieros biomédicos disponibles en todo momento para soporte técnico.', icon: '🛟' },
   ];
@@ -878,37 +712,6 @@ export class App implements OnInit, OnDestroy {
     );
   }
 
-  get connectedWearableCount(): number {
-    return this.wearables.filter((wearable) => wearable.estado === 'Conectado').length;
-  }
-
-  get dispositivosTipo(): { tipo: string; cantidad: number; color: string }[] {
-    const colors = ['#001ef8', '#f80000', '#10b981', '#f59e0b', '#8b5cf6'];
-    const byModel = new Map<string, number>();
-    for (const wearable of this.wearables) {
-      byModel.set(wearable.modelo, (byModel.get(wearable.modelo) ?? 0) + 1);
-    }
-    return [...byModel.entries()].map(([tipo, cantidad], index) => ({
-      tipo,
-      cantidad,
-      color: colors[index % colors.length],
-    }));
-  }
-
-  get totalDispositivos(): number {
-    return this.wearables.length;
-  }
-
-  porcentaje(n: number): number {
-    return this.totalDispositivos === 0
-      ? 0
-      : Math.round((n / this.totalDispositivos) * 100);
-  }
-
-  get wearableSeleccionado(): WearableDevice {
-    return this.wearables.find((w) => w.id === this.wearableSeleccionadoId) ?? this.wearables[0] ?? wearablePlaceholder;
-  }
-
   get tvSeleccionada(): TvDevice {
     return this.tvs.find((tv) => tv.id === this.tvSeleccionadaId) ?? this.tvs[0] ?? this.tvPlaceholder;
   }
@@ -925,25 +728,34 @@ export class App implements OnInit, OnDestroy {
     return this.turnosAtencion.filter((turno) => turno.estado === 'finalizado').length;
   }
 
-  get alertasCriticas(): string[] {
-    const alertas: string[] = [];
-    if (this.lastTelemetry.heartRate >= 110) alertas.push('Frecuencia cardiaca elevada');
-    if (this.lastTelemetry.spo2 <= 92) alertas.push('SpO2 por debajo del umbral');
-    if ((this.lastTelemetry.stress ?? 0) >= 70) alertas.push('Indice de estres fuera de rango');
-    if (alertas.length === 0) {
-      alertas.push('Sin alertas clinicas criticas');
-    }
-    return alertas;
+  get latestClinicalMeasurement(): Record<string, unknown> | null {
+    return [...this.portalMeasurements].sort((a, b) =>
+      String(b['reading_at'] ?? '').localeCompare(String(a['reading_at'] ?? '')),
+    )[0] ?? null;
   }
 
-  seleccionarWearable(id: string) {
-    this.wearableSeleccionadoId = id;
-    this.tvMensaje = `Wearable ${this.wearableSeleccionado.nombre} seleccionado.`;
-    void fetch(this.api('/api/select-wearable'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ wearableId: id }),
-    }).finally(() => void this.cargarEstadoPuente());
+  get latestClinicalPatientName(): string {
+    const measurement = this.latestClinicalMeasurement;
+    return measurement ? this.measurementPatientName(measurement) : 'Sin paciente';
+  }
+
+  get alertasCriticas(): string[] {
+    const measurement = this.latestClinicalMeasurement;
+    if (!measurement) return ['Sin mediciones recientes'];
+
+    const alertas: string[] = [];
+    const heartRate = Number(measurement['heart_rate_bpm']);
+    const oxygenSaturation = Number(measurement['oxygen_saturation_percent']);
+    if (Number.isFinite(heartRate) && heartRate >= 110) {
+      alertas.push('Frecuencia cardiaca elevada');
+    }
+    if (Number.isFinite(oxygenSaturation) && oxygenSaturation <= 92) {
+      alertas.push('SpO₂ por debajo del umbral');
+    }
+    if (alertas.length === 0) {
+      alertas.push('Sin alertas clínicas calculadas');
+    }
+    return alertas;
   }
 
   seleccionarTv(id: string) {
@@ -962,41 +774,41 @@ export class App implements OnInit, OnDestroy {
       && this.tvSeleccionada.plataforma.toLowerCase().includes('webos');
   }
 
-  async conectarDispositivo(): Promise<void> {
+  async conectarTv(): Promise<void> {
     this.deviceBusy = true;
     this.deviceError = '';
     this.deviceNotice = '';
     try {
-      const response = await fetch(this.api('/api/pair'), {
+      await this.requestJson('/api/tv/pair', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wearableId: this.wearableSeleccionadoId, tvId: this.tvSeleccionadaId }),
+        body: JSON.stringify({ tvId: this.tvSeleccionadaId }),
       });
-      if (!response.ok) {
-        throw new Error(`No se pudo conectar el dispositivo (HTTP ${response.status}).`);
-      }
-      this.deviceNotice = 'Dispositivo conectado correctamente.';
-      await this.cargarEstadoPuente();
+      this.deviceNotice = 'Pantalla vinculada correctamente.';
+      await this.cargarEstadoTv();
     } catch (error) {
-      this.deviceError = error instanceof Error ? error.message : 'No se pudo conectar el dispositivo.';
+      console.error('No se pudo vincular la pantalla.', error);
+      this.deviceError = 'No se pudo vincular la pantalla. Inténtalo de nuevo.';
     } finally {
       this.deviceBusy = false;
     }
   }
 
-  async desconectarDispositivo(): Promise<void> {
+  async desconectarTv(): Promise<void> {
     this.deviceBusy = true;
     this.deviceError = '';
     this.deviceNotice = '';
     try {
-      const response = await fetch(this.api('/api/unpair'), { method: 'POST' });
-      if (!response.ok) {
-        throw new Error(`No se pudo desconectar el dispositivo (HTTP ${response.status}).`);
-      }
-      this.deviceNotice = 'Dispositivo desconectado correctamente.';
-      await this.cargarEstadoPuente();
+      await this.requestJson('/api/tv/unpair', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tvId: this.tvSeleccionadaId }),
+      });
+      this.deviceNotice = 'Pantalla desvinculada correctamente.';
+      await this.cargarEstadoTv();
     } catch (error) {
-      this.deviceError = error instanceof Error ? error.message : 'No se pudo desconectar el dispositivo.';
+      console.error('No se pudo desvincular la pantalla.', error);
+      this.deviceError = 'No se pudo desvincular la pantalla. Inténtalo de nuevo.';
     } finally {
       this.deviceBusy = false;
     }
@@ -1038,7 +850,11 @@ export class App implements OnInit, OnDestroy {
         this.navegar('admin');
       }
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo inicializar el portal clínico.';
+      this.portalError = this.userFacingError(
+        'No se pudo inicializar el portal clínico.',
+        error,
+        'No se pudo iniciar el portal. Inténtalo de nuevo más tarde.',
+      );
       if (!this.portalProfile && !this.canAccessView(this.vistaActiva)) {
         this.portalStatus = 'Inicia sesión para acceder a esta sección.';
         this.navegar('admin');
@@ -1064,7 +880,11 @@ export class App implements OnInit, OnDestroy {
         ? 'patient-profile'
         : profile.role === 'doctor' ? 'dashboard' : 'admin');
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo iniciar sesión.';
+      this.portalError = this.userFacingError(
+        'No se pudo iniciar sesión.',
+        error,
+        'No se pudo iniciar sesión. Revisa tus datos e inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1169,7 +989,11 @@ export class App implements OnInit, OnDestroy {
         ? 'Tu solicitud médica quedó registrada y está pendiente de revisión administrativa. No tendrás acceso clínico hasta recibir aprobación.'
         : 'Tu cuenta se creó correctamente.';
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo crear la cuenta.';
+      this.portalError = this.userFacingError(
+        'No se pudo crear la cuenta.',
+        error,
+        'No se pudo crear la cuenta. Revisa tus datos e inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1188,7 +1012,11 @@ export class App implements OnInit, OnDestroy {
       await this.clinicalPortal.requestPasswordReset(email);
       this.portalStatus = 'Si existe una cuenta con ese correo, recibirás instrucciones para cambiar la contraseña.';
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo solicitar el cambio de contraseña.';
+      this.portalError = this.userFacingError(
+        'No se pudo solicitar el cambio de contraseña.',
+        error,
+        'No se pudo enviar la solicitud. Inténtalo de nuevo más tarde.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1260,6 +1088,8 @@ export class App implements OnInit, OnDestroy {
       this.portalConversations = [];
       this.portalMessages = [];
       this.portalUsers = [];
+      this.incomingClinicalCall = null;
+      this.activeClinicalCall = null;
       this.clinicTurns = [];
       this.supportConversations = [];
       this.supportMessages = [];
@@ -1278,7 +1108,11 @@ export class App implements OnInit, OnDestroy {
       this.portalStatus = '';
       this.navegar('inicio');
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo cerrar sesión.';
+      this.portalError = this.userFacingError(
+        'No se pudo cerrar sesión.',
+        error,
+        'No se pudo cerrar la sesión. Inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1324,6 +1158,8 @@ export class App implements OnInit, OnDestroy {
         this.portalMeasurements = [];
         this.portalConversations = [];
         this.portalMessages = [];
+        this.incomingClinicalCall = null;
+        this.activeClinicalCall = null;
         this.tareas = [];
         this.dashboardMetrics = null;
         this.reportStatsAvailable = false;
@@ -1347,9 +1183,11 @@ export class App implements OnInit, OnDestroy {
           this.tasksError = '';
         } else {
           this.tareas = [];
-          this.tasksError = tasksResult.reason instanceof Error
-            ? tasksResult.reason.message
-            : 'No se pudieron cargar las tareas.';
+          this.tasksError = this.userFacingError(
+            'No se pudieron cargar las tareas del médico.',
+            tasksResult.reason,
+            'No se pudieron cargar las tareas.',
+          );
           syncWarnings.push(`Tareas: ${this.tasksError}`);
         }
         const [reportsResult, measurementsResult] = await Promise.allSettled([
@@ -1365,9 +1203,11 @@ export class App implements OnInit, OnDestroy {
         } else {
           this.portalReports = [];
           syncWarnings.push(
-            reportsResult.reason instanceof Error
-              ? `Reportes: ${reportsResult.reason.message}`
-              : 'No se pudieron cargar los reportes.',
+            this.userFacingError(
+              'No se pudieron cargar los reportes clínicos del médico.',
+              reportsResult.reason,
+              'No se pudieron cargar los reportes clínicos.',
+            ),
           );
         }
         if (measurementsResult.status === 'fulfilled') {
@@ -1375,9 +1215,11 @@ export class App implements OnInit, OnDestroy {
         } else {
           this.portalMeasurements = [];
           syncWarnings.push(
-            measurementsResult.reason instanceof Error
-              ? `Mediciones: ${measurementsResult.reason.message}`
-              : 'No se pudieron cargar las mediciones.',
+            this.userFacingError(
+              'No se pudieron cargar las mediciones de los pacientes asignados.',
+              measurementsResult.reason,
+              'No se pudieron cargar las mediciones clínicas.',
+            ),
           );
         }
         if (this.selectedPatientUid && !assignedUids.has(this.selectedPatientUid)) {
@@ -1408,9 +1250,11 @@ export class App implements OnInit, OnDestroy {
         } else {
           this.portalMeasurements = [];
           syncWarnings.push(
-            measurementsResult.reason instanceof Error
-              ? `Signos vitales: ${measurementsResult.reason.message}`
-              : 'No se pudieron cargar los signos vitales.',
+            this.userFacingError(
+              'No se pudieron cargar los signos vitales del paciente.',
+              measurementsResult.reason,
+              'No se pudieron cargar tus signos vitales.',
+            ),
           );
         }
         if (reportsResult.status === 'fulfilled') {
@@ -1419,9 +1263,11 @@ export class App implements OnInit, OnDestroy {
         } else {
           this.portalReports = [];
           syncWarnings.push(
-            reportsResult.reason instanceof Error
-              ? `Reportes: ${reportsResult.reason.message}`
-              : 'No se pudieron cargar tus reportes.',
+            this.userFacingError(
+              'No se pudieron cargar los reportes del paciente.',
+              reportsResult.reason,
+              'No se pudieron cargar tus reportes.',
+            ),
           );
         }
         if (this.selectedConversationId && !conversations.some(
@@ -1444,17 +1290,41 @@ export class App implements OnInit, OnDestroy {
           ),
         ]);
         this.portalUsers = adminData.profiles;
+        this.portalPatients = [];
         this.doctorCredentials = adminData.credentials;
         this.doctorAssignments = adminData.assignments;
         this.clinicTurns = turns;
+        const patientUids = adminData.profiles
+          .filter((user) => user.role === 'patient')
+          .map((patient) => patient.id);
+        const measurementsResult = await this.clinicalPortal
+          .loadPatientMeasurements(patientUids)
+          .then(
+            (value) => ({ status: 'fulfilled' as const, value }),
+            (reason: unknown) => ({ status: 'rejected' as const, reason }),
+          );
+        if (measurementsResult.status === 'fulfilled') {
+          this.portalMeasurements = measurementsResult.value;
+        } else {
+          this.portalMeasurements = [];
+          syncWarnings.push(
+            this.userFacingError(
+              'No se pudieron cargar las mediciones para administración.',
+              measurementsResult.reason,
+              'No se pudieron cargar los signos vitales de pacientes.',
+            ),
+          );
+        }
         if (tasksResult.status === 'fulfilled') {
           this.tareas = tasksResult.value.map((task) => this.toTarea(task));
           this.tasksError = '';
         } else {
           this.tareas = [];
-          this.tasksError = tasksResult.reason instanceof Error
-            ? tasksResult.reason.message
-            : 'No se pudieron cargar las tareas.';
+          this.tasksError = this.userFacingError(
+            'No se pudieron cargar las tareas de administración.',
+            tasksResult.reason,
+            'No se pudieron cargar las tareas.',
+          );
           syncWarnings.push(`Tareas: ${this.tasksError}`);
         }
         if (reportsResult.status === 'fulfilled') {
@@ -1464,9 +1334,11 @@ export class App implements OnInit, OnDestroy {
           this.portalReports = [];
           this.reportStatsAvailable = false;
           syncWarnings.push(
-            reportsResult.reason instanceof Error
-              ? `Reportes: ${reportsResult.reason.message}`
-              : 'No se pudieron cargar los reportes.',
+            this.userFacingError(
+              'No se pudieron cargar los reportes de administración.',
+              reportsResult.reason,
+              'No se pudieron cargar los reportes clínicos.',
+            ),
           );
         }
       } else {
@@ -1483,9 +1355,11 @@ export class App implements OnInit, OnDestroy {
           this.statsError = '';
         } else {
           this.dashboardMetrics = null;
-          this.statsError = metricsResult[0].reason instanceof Error
-            ? metricsResult[0].reason.message
-            : 'No se pudieron cargar las estadísticas.';
+          this.statsError = this.userFacingError(
+            'No se pudieron cargar las estadísticas de la plataforma.',
+            metricsResult[0].reason,
+            'No se pudieron cargar las estadísticas.',
+          );
           syncWarnings.push(`Estadísticas: ${this.statsError}`);
         }
         this.actualizarGraficaMensual();
@@ -1501,10 +1375,85 @@ export class App implements OnInit, OnDestroy {
       }
       this.portalError = syncWarnings.join(' ');
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudieron sincronizar los datos del portal.';
+      this.portalError = this.userFacingError(
+        'No se pudieron sincronizar los datos del portal clínico.',
+        error,
+        'No se pudieron actualizar los datos. Inténtalo de nuevo.',
+      );
     } finally {
       this.tasksLoading = false;
       this.statsLoading = false;
+    }
+  }
+
+  private async refreshClinicalRecords(): Promise<void> {
+    const profile = this.portalProfile;
+    if (!profile || this.refreshingClinicalRecords) return;
+    this.refreshingClinicalRecords = true;
+    try {
+      const patientUids = profile.role === 'admin'
+        ? this.portalUsers.filter((user) => user.role === 'patient').map((user) => user.id)
+        : profile.role === 'doctor'
+          ? this.portalPatients.map((patient) => patient.id)
+          : [profile.id];
+      const [reportsResult, measurementsResult] = await Promise.allSettled([
+        this.clinicalPortal.loadAssignedReports(),
+        this.clinicalPortal.loadPatientMeasurements(patientUids),
+      ]);
+      const allowedPatientUids = new Set(patientUids);
+      if (reportsResult.status === 'fulfilled') {
+        this.portalReports = reportsResult.value.filter((report) => {
+          const ownerUid = report['ownerUid'];
+          return typeof ownerUid === 'string' && allowedPatientUids.has(ownerUid);
+        });
+        this.reportStatsAvailable = true;
+      } else if (!this.portalError) {
+        this.portalError = this.userFacingError(
+          'No se pudieron actualizar los reportes clínicos.',
+          reportsResult.reason,
+          'No se pudieron actualizar los reportes. Inténtalo de nuevo más tarde.',
+        );
+      }
+      if (measurementsResult.status === 'fulfilled') {
+        this.portalMeasurements = measurementsResult.value;
+      } else if (!this.portalError) {
+        this.portalError = this.userFacingError(
+          'No se pudieron actualizar las mediciones clínicas.',
+          measurementsResult.reason,
+          'No se pudieron actualizar los signos vitales. Inténtalo de nuevo más tarde.',
+        );
+      }
+    } finally {
+      this.refreshingClinicalRecords = false;
+    }
+  }
+
+  private async refreshClinicalCallState(): Promise<void> {
+    const profile = this.portalProfile;
+    if (!profile || this.refreshingClinicalCalls) return;
+    this.refreshingClinicalCalls = true;
+    try {
+      if (this.activeClinicalCall) {
+        const latest = await this.clinicalPortal.loadClinicalVideoCall(
+          this.activeClinicalCall.id,
+        );
+        if (latest) this.activeClinicalCall = latest;
+      }
+      if (profile.role === 'patient') {
+        this.incomingClinicalCall = await this.clinicalPortal.loadIncomingClinicalCall(
+          profile.id,
+        );
+      }
+    } catch (error) {
+      if (!this.portalError) {
+        this.portalError = this.userFacingError(
+          'No se pudo actualizar el estado de la videollamada.',
+          error,
+          'No se pudo actualizar la llamada. Inténtalo de nuevo más tarde.',
+        );
+      }
+    } finally {
+      this.refreshingClinicalCalls = false;
     }
   }
 
@@ -1534,7 +1483,11 @@ export class App implements OnInit, OnDestroy {
       this.supportConversations = [conversation, ...this.supportConversations];
       await this.selectSupportConversation(conversation);
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo iniciar el chat de soporte.';
+      this.portalError = this.userFacingError(
+        'No se pudo iniciar el chat de soporte.',
+        error,
+        'No se pudo iniciar el chat de soporte. Inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1546,7 +1499,11 @@ export class App implements OnInit, OnDestroy {
     try {
       this.supportMessages = await this.clinicalPortal.loadSupportMessages(conversation.id);
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo cargar la conversación de soporte.';
+      this.portalError = this.userFacingError(
+        'No se pudo cargar la conversación de soporte.',
+        error,
+        'No se pudo cargar la conversación de soporte.',
+      );
     }
   }
 
@@ -1565,7 +1522,11 @@ export class App implements OnInit, OnDestroy {
       );
       await this.refreshPortalData();
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo enviar el mensaje.';
+      this.portalError = this.userFacingError(
+        'No se pudo enviar el mensaje de soporte.',
+        error,
+        'No se pudo enviar el mensaje. Inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1582,7 +1543,11 @@ export class App implements OnInit, OnDestroy {
       );
       await this.refreshPortalData();
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo actualizar la solicitud.';
+      this.portalError = this.userFacingError(
+        'No se pudo actualizar la solicitud.',
+        error,
+        'No se pudo actualizar la solicitud. Inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1598,7 +1563,11 @@ export class App implements OnInit, OnDestroy {
       this.selectedConversationId = conversation.id;
       await this.loadDoctorMessages(conversation.id);
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo abrir la conversación.';
+      this.portalError = this.userFacingError(
+        'No se pudo abrir la conversación.',
+        error,
+        'No se pudo abrir la conversación. Inténtalo de nuevo.',
+      );
     }
   }
 
@@ -1611,8 +1580,159 @@ export class App implements OnInit, OnDestroy {
       await this.refreshPortalData();
       await this.loadDoctorMessages(this.selectedConversationId);
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo iniciar el chat.';
+      this.portalError = this.userFacingError(
+        'No se pudo iniciar el chat.',
+        error,
+        'No se pudo iniciar el chat. Inténtalo de nuevo.',
+      );
     }
+  }
+
+  async reviewClinicalReport(report: Record<string, unknown>): Promise<void> {
+    const reportId = report['id'];
+    if (this.portalProfile?.role !== 'doctor' || typeof reportId !== 'string' || this.portalBusy) return;
+    this.portalBusy = true;
+    this.portalError = '';
+    this.portalStatus = '';
+    try {
+      const saved = await this.clinicalPortal.reviewClinicalReport(
+        reportId,
+        this.reportObservationsDraft[reportId] ?? '',
+      );
+      this.portalReports = this.portalReports.map((item) =>
+        item['id'] === reportId ? saved : item,
+      );
+      delete this.reportObservationsDraft[reportId];
+      this.portalStatus = 'Reporte marcado como revisado y observaciones guardadas.';
+    } catch (error) {
+      this.portalError = this.userFacingError(
+        'No se pudo revisar el reporte.',
+        error,
+        'No se pudo guardar la revisión del reporte. Inténtalo de nuevo.',
+      );
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  reportObservationDraft(report: Record<string, unknown>): string {
+    const reportId = report['id'];
+    return typeof reportId === 'string'
+      ? this.reportObservationsDraft[reportId] ?? ''
+      : '';
+  }
+
+  setReportObservationDraft(report: Record<string, unknown>, value: string): void {
+    const reportId = report['id'];
+    if (typeof reportId === 'string') {
+      this.reportObservationsDraft[reportId] = value;
+    }
+  }
+
+  reportReviewStatus(report: Record<string, unknown>): string {
+    return report['reviewStatus'] === 'reviewed' ? 'Revisado' : 'Pendiente de revisión';
+  }
+
+  async startClinicalCallFromReport(report: Record<string, unknown>): Promise<void> {
+    const profile = this.portalProfile;
+    const patientUid = report['ownerUid'];
+    if (
+      !profile ||
+      (profile.role !== 'doctor' && profile.role !== 'admin') ||
+      typeof patientUid !== 'string' ||
+      this.portalBusy
+    ) return;
+
+    const allowedPatients = profile.role === 'admin'
+      ? this.portalUsers.filter((user) => user.role === 'patient')
+      : this.portalPatients;
+    const patient = allowedPatients.find((item) => item.id === patientUid);
+    if (!patient) {
+      this.portalError = 'No puedes iniciar una llamada con este paciente.';
+      return;
+    }
+    if (
+      this.activeClinicalCall?.patient_uid === patient.id &&
+      ['ringing', 'accepted'].includes(this.activeClinicalCall.status)
+    ) {
+      this.portalStatus = 'Ya hay una invitación activa para este paciente.';
+      return;
+    }
+
+    this.portalBusy = true;
+    this.portalError = '';
+    this.portalStatus = '';
+    try {
+      const randomBytes = crypto.getRandomValues(new Uint8Array(12));
+      const roomName = `BioMedicaDemo-${Array.from(randomBytes, (value) =>
+        value.toString(16).padStart(2, '0'),
+      ).join('')}`;
+      const call = await this.clinicalPortal.createClinicalVideoCall(
+        patient.id,
+        roomName,
+      );
+      this.activeClinicalCall = call;
+      this.activeClinicalCallReportId = String(report['id'] ?? '');
+      this.activeClinicalCallPatientName = `${patient.first_name} ${patient.last_name}`;
+      this.portalStatus = 'Invitación enviada. El paciente debe aceptarla para entrar a la sala.';
+    } catch (error) {
+      this.portalError = this.userFacingError(
+        'No se pudo crear la invitación clínica.',
+        error,
+        'No se pudo enviar la invitación. Inténtalo de nuevo más tarde.',
+      );
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  async respondToClinicalCall(
+    call: ClinicalVideoCall,
+    response: 'accepted' | 'declined',
+  ): Promise<void> {
+    if (
+      this.portalProfile?.role !== 'patient' ||
+      call.patient_uid !== this.portalProfile.id ||
+      this.portalBusy
+    ) return;
+
+    this.portalBusy = true;
+    this.portalError = '';
+    this.portalStatus = '';
+    try {
+      this.activeClinicalCall = await this.clinicalPortal.respondClinicalVideoCall(
+        call.id,
+        response,
+      );
+      this.incomingClinicalCall = null;
+      this.activeClinicalCallPatientName = 'Consulta clínica';
+      this.portalStatus = response === 'accepted'
+        ? 'Llamada aceptada. Ya puedes entrar a la sala.'
+        : 'Rechazaste la invitación de llamada.';
+    } catch (error) {
+      this.portalError = this.userFacingError(
+        'No se pudo responder la invitación clínica.',
+        error,
+        'No se pudo responder la invitación. Inténtalo de nuevo.',
+      );
+    } finally {
+      this.portalBusy = false;
+    }
+  }
+
+  clinicalCallUrl(call: ClinicalVideoCall): string {
+    return `https://meet.jit.si/${encodeURIComponent(call.room_name)}`;
+  }
+
+  clinicalCallStatusLabel(status: ClinicalVideoCall['status']): string {
+    const labels: Record<ClinicalVideoCall['status'], string> = {
+      ringing: 'Esperando respuesta',
+      accepted: 'Paciente conectado',
+      declined: 'Invitación rechazada',
+      ended: 'Llamada finalizada',
+      expired: 'Invitación vencida',
+    };
+    return labels[status];
   }
 
   async selectPatientConversation(conversation: ClinicalConversation): Promise<void> {
@@ -1621,7 +1741,11 @@ export class App implements OnInit, OnDestroy {
     try {
       await this.loadDoctorMessages(conversation.id);
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo abrir la conversación.';
+      this.portalError = this.userFacingError(
+        'No se pudo cargar la conversación clínica.',
+        error,
+        'No se pudo abrir la conversación. Inténtalo de nuevo.',
+      );
     }
   }
 
@@ -1638,7 +1762,11 @@ export class App implements OnInit, OnDestroy {
       );
       this.signedImages = Object.fromEntries(entries);
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo cargar el chat.';
+      this.portalError = this.userFacingError(
+        'No se pudo cargar el chat.',
+        error,
+        'No se pudo cargar el chat. Inténtalo de nuevo.',
+      );
     }
   }
 
@@ -1682,7 +1810,11 @@ export class App implements OnInit, OnDestroy {
           console.error('Could not remove an unattached clinical image:', cleanupError);
         }
       }
-      this.portalError = error instanceof Error ? error.message : 'No se pudo enviar el mensaje.';
+      this.portalError = this.userFacingError(
+        'No se pudo enviar el mensaje clínico.',
+        error,
+        'No se pudo enviar el mensaje. Inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1703,7 +1835,11 @@ export class App implements OnInit, OnDestroy {
       };
       this.portalStatus = 'Solicitud recibida; un administrador debe verificarla antes de habilitar atención.';
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo enviar la solicitud.';
+      this.portalError = this.userFacingError(
+        'No se pudo enviar la solicitud médica.',
+        error,
+        'No se pudo enviar la solicitud. Inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1726,7 +1862,11 @@ export class App implements OnInit, OnDestroy {
         ? 'Solicitud aprobada. Confirma la verificación profesional antes de asignar pacientes.'
         : 'Solicitud rechazada.';
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo revisar la solicitud.';
+      this.portalError = this.userFacingError(
+        'No se pudo revisar la solicitud médica.',
+        error,
+        'No se pudo revisar la solicitud. Inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1759,7 +1899,11 @@ export class App implements OnInit, OnDestroy {
       await this.refreshPortalData();
       this.portalStatus = 'Asignaciones clínicas actualizadas.';
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudieron guardar las asignaciones.';
+      this.portalError = this.userFacingError(
+        'No se pudieron guardar las asignaciones clínicas.',
+        error,
+        'No se pudieron guardar las asignaciones. Inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1774,7 +1918,11 @@ export class App implements OnInit, OnDestroy {
       await this.refreshPortalData();
       this.portalStatus = 'Rol actualizado.';
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo actualizar el rol.';
+      this.portalError = this.userFacingError(
+        'No se pudo actualizar el rol.',
+        error,
+        'No se pudo actualizar el rol. Inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1791,7 +1939,11 @@ export class App implements OnInit, OnDestroy {
         ? 'Cuenta reactivada. El usuario debe iniciar sesión nuevamente.'
         : 'Cuenta dada de baja. Se conserva su historial clínico y se bloqueó su acceso.';
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo actualizar el estado de la cuenta.';
+      this.portalError = this.userFacingError(
+        'No se pudo actualizar el estado de la cuenta.',
+        error,
+        'No se pudo actualizar el estado de la cuenta. Inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1802,21 +1954,23 @@ export class App implements OnInit, OnDestroy {
     this.portalError = '';
     this.portalStatus = '';
     try {
-      await this.clinicalPortal.createClinicTurn(this.turnDraft);
+      const createdTurn = await this.clinicalPortal.createClinicTurn(this.turnDraft);
       this.turnDraft = {
-        ticket_code: '',
         patient_uid: '',
         service: 'Consulta general',
         room: 'Consultorio 1',
         priority: 'media',
-        status: 'en_espera',
         eta_minutes: 0,
       };
       await this.refreshPortalData();
       await this.cargarTurnosTv();
-      this.portalStatus = 'Turno guardado correctamente.';
+      this.portalStatus = `Turno ${createdTurn.ticket_code} guardado correctamente.`;
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo guardar el turno.';
+      this.portalError = this.userFacingError(
+        'No se pudo guardar el turno.',
+        error,
+        'No se pudo registrar el turno. Inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1832,7 +1986,11 @@ export class App implements OnInit, OnDestroy {
       await this.refreshPortalData();
       await this.cargarTurnosTv();
     } catch (error) {
-      this.portalError = error instanceof Error ? error.message : 'No se pudo cambiar el turno.';
+      this.portalError = this.userFacingError(
+        'No se pudo cambiar el turno.',
+        error,
+        'No se pudo actualizar el turno. Inténtalo de nuevo.',
+      );
     } finally {
       this.portalBusy = false;
     }
@@ -1852,6 +2010,34 @@ export class App implements OnInit, OnDestroy {
       : this.portalPatients;
     const patient = profiles.find((profile) => profile.id === ownerUid);
     return patient ? `${patient.first_name} ${patient.last_name}` : 'Paciente';
+  }
+
+  measurementPatientName(measurement: Record<string, unknown>): string {
+    const ownerUid = measurement['owner_uid'];
+    if (typeof ownerUid !== 'string') return 'Paciente';
+    const profile = this.portalProfile;
+    const profiles = profile?.role === 'admin'
+      ? this.portalUsers
+      : profile?.role === 'doctor'
+        ? this.portalPatients
+        : profile ? [profile] : [];
+    const patient = profiles.find((item) => item.id === ownerUid);
+    return patient ? `${patient.first_name} ${patient.last_name}` : 'Paciente';
+  }
+
+  get visibleClinicalMeasurements(): Record<string, unknown>[] {
+    const profile = this.portalProfile;
+    const patientUids = profile?.role === 'admin'
+      ? new Set(this.portalUsers.filter((user) => user.role === 'patient').map((user) => user.id))
+      : profile?.role === 'doctor'
+        ? new Set(this.portalPatients.map((patient) => patient.id))
+        : new Set(profile ? [profile.id] : []);
+    return this.portalMeasurements
+      .filter((measurement) =>
+        typeof measurement['owner_uid'] === 'string' &&
+        patientUids.has(measurement['owner_uid']),
+      )
+      .slice(0, 20);
   }
 
   async openReportChat(report: Record<string, unknown>): Promise<void> {
@@ -1943,7 +2129,11 @@ export class App implements OnInit, OnDestroy {
       this.adminLogin.password = '';
       await this.cargarPanelAdmin(false);
     } catch (error) {
-      this.adminMensaje = error instanceof Error ? error.message : 'No fue posible iniciar sesion';
+      this.adminMensaje = this.userFacingError(
+        'No se pudo iniciar la sesión de administración local.',
+        error,
+        'No fue posible iniciar sesión. Inténtalo de nuevo.',
+      );
       this.cerrarSesionAdmin(false);
     } finally {
       this.adminBusy = false;
@@ -1980,7 +2170,11 @@ export class App implements OnInit, OnDestroy {
         this.adminMensaje = 'Panel sincronizado. Seguridad y gestion de usuarios activas.';
       }
     } catch (error) {
-      this.adminMensaje = error instanceof Error ? error.message : 'No fue posible cargar el panel';
+      this.adminMensaje = this.userFacingError(
+        'No se pudo cargar el panel local de administración.',
+        error,
+        'No fue posible cargar el panel. Inténtalo de nuevo.',
+      );
     }
   }
 
@@ -2000,7 +2194,11 @@ export class App implements OnInit, OnDestroy {
       this.adminMensaje = 'Usuario administrativo creado correctamente.';
       await this.cargarPanelAdmin(false);
     } catch (error) {
-      this.adminMensaje = error instanceof Error ? error.message : 'No fue posible crear el usuario';
+      this.adminMensaje = this.userFacingError(
+        'No se pudo crear el usuario local.',
+        error,
+        'No fue posible crear el usuario. Inténtalo de nuevo.',
+      );
     }
   }
 
@@ -2015,7 +2213,11 @@ export class App implements OnInit, OnDestroy {
       this.adminMensaje = `Usuario ${user.username} actualizado a ${nextStatus}.`;
       await this.cargarPanelAdmin(false);
     } catch (error) {
-      this.adminMensaje = error instanceof Error ? error.message : 'No fue posible actualizar el usuario';
+      this.adminMensaje = this.userFacingError(
+        'No se pudo actualizar el usuario local.',
+        error,
+        'No fue posible actualizar el usuario. Inténtalo de nuevo.',
+      );
     }
   }
 
@@ -2043,7 +2245,11 @@ export class App implements OnInit, OnDestroy {
       await this.cargarPanelAdmin(false);
       await this.cargarTurnosTv();
     } catch (error) {
-      this.adminMensaje = error instanceof Error ? error.message : 'No fue posible crear el turno';
+      this.adminMensaje = this.userFacingError(
+        'No se pudo crear el turno local.',
+        error,
+        'No fue posible crear el turno. Inténtalo de nuevo.',
+      );
     }
   }
 
@@ -2058,7 +2264,11 @@ export class App implements OnInit, OnDestroy {
       await this.cargarPanelAdmin(false);
       await this.cargarTurnosTv();
     } catch (error) {
-      this.adminMensaje = error instanceof Error ? error.message : 'No fue posible actualizar el turno';
+      this.adminMensaje = this.userFacingError(
+        'No se pudo actualizar el turno local.',
+        error,
+        'No fue posible actualizar el turno. Inténtalo de nuevo.',
+      );
     }
   }
 
@@ -2217,7 +2427,11 @@ export class App implements OnInit, OnDestroy {
       this.tareas = this.tareas.map((current) => current.id === saved.id ? this.toTarea(saved) : current);
       this.taskNotice = 'Tarea actualizada correctamente.';
     } catch (error) {
-      this.taskActionError = error instanceof Error ? error.message : 'No se pudo actualizar la tarea.';
+      this.taskActionError = this.userFacingError(
+        'No se pudo actualizar la tarea.',
+        error,
+        'No se pudo actualizar la tarea. Inténtalo de nuevo.',
+      );
     } finally {
       this.taskBusy = false;
     }
@@ -2232,7 +2446,11 @@ export class App implements OnInit, OnDestroy {
       this.tareas = this.tareas.filter((current) => current.id !== tarea.id);
       this.taskNotice = 'Tarea eliminada correctamente.';
     } catch (error) {
-      this.taskActionError = error instanceof Error ? error.message : 'No se pudo eliminar la tarea.';
+      this.taskActionError = this.userFacingError(
+        'No se pudo eliminar la tarea.',
+        error,
+        'No se pudo eliminar la tarea. Inténtalo de nuevo.',
+      );
     } finally {
       this.taskBusy = false;
     }
@@ -2269,7 +2487,11 @@ export class App implements OnInit, OnDestroy {
       this.taskNotice = 'Tarea creada correctamente.';
       this.cerrarModal();
     } catch (error) {
-      this.taskActionError = error instanceof Error ? error.message : 'No se pudo crear la tarea.';
+      this.taskActionError = this.userFacingError(
+        'No se pudo crear la tarea.',
+        error,
+        'No se pudo crear la tarea. Inténtalo de nuevo.',
+      );
     } finally {
       this.taskBusy = false;
     }

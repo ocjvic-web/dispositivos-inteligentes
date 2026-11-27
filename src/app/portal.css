@@ -78,6 +78,57 @@
   margin: 4px 0 0;
 }
 
+.clinical-call-invitation,
+.clinical-call-active {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+  border-color: #b8ccef;
+  background: linear-gradient(120deg, #f1f6ff, #fff);
+}
+
+.clinical-call-invitation h3,
+.clinical-call-active h3 {
+  margin: 8px 0;
+  color: #173c78;
+}
+
+.clinical-call-invitation p,
+.clinical-call-active p {
+  margin: 0;
+}
+
+.clinical-call-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.clinical-call-active > a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  text-align: center;
+}
+
+.clinical-call-safety {
+  color: #7a4b13;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.clinical-reports-panel > .clinical-call-safety {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid #f1d49e;
+  border-radius: 10px;
+  background: #fff9eb;
+}
+
 .clinical-report-item {
   padding: 16px 0;
   border-bottom: 1px solid var(--line);
@@ -99,6 +150,23 @@
   margin: 4px 0 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.clinical-report-actions {
+  display: grid;
+  gap: 8px;
+  flex: 0 1 320px;
+  min-width: min(100%, 240px);
+}
+
+.clinical-report-actions textarea {
+  width: 100%;
+  min-height: 78px;
+}
+
+.clinical-report-actions .btn-primary,
+.clinical-report-actions .btn-secondary {
+  width: 100%;
 }
 
 .support-grid {
@@ -699,6 +767,16 @@
 
   .portal-user-actions {
     justify-content: flex-start;
+  }
+
+  .clinical-call-invitation,
+  .clinical-call-active {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .clinical-call-actions {
+    flex-direction: column;
   }
 }
 

@@ -6,8 +6,8 @@ describe('App', () => {
     window.history.replaceState({}, '', '/');
     spyOn(window, 'fetch').and.callFake(async (input, init) => {
       const requestUrl = String(input);
-      if (requestUrl.endsWith('/api/status')) {
-        return new Response(JSON.stringify({ wearables: [], tvs: [], tvPaired: false }));
+      if (requestUrl.endsWith('/api/tv/status')) {
+        return new Response(JSON.stringify({ tvs: [], tvPaired: false }));
       }
       if (requestUrl.endsWith('/api/tv-feed')) {
         return new Response(JSON.stringify({ queue: [], currentTurn: null }));
@@ -76,7 +76,6 @@ describe('App', () => {
     expect(app.navigationItems.map((item) => item.label)).toEqual([
       'Inicio',
       'Reportes clínicos',
-      'Wearables',
       'Turnos',
       'Dashboard',
       'Conexiones',
@@ -84,10 +83,14 @@ describe('App', () => {
     ]);
     app.navegar('doctor-chats');
     expect(app.vistaActiva).toBe('doctor-chats');
-    app.navegar('wearable');
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).not.toContain('Flutter Wearable Biomédico');
-    expect(fixture.nativeElement.textContent).toContain('Catálogo de Wearables Biomédicos');
+    expect(fixture.nativeElement.textContent).not.toContain('Wearables');
+    expect(fixture.nativeElement.querySelector('.fuse-search-wrap')).toBeNull();
+    app.navegar('webos');
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Smart TVs');
+    expect(fixture.nativeElement.textContent).not.toContain('Wearables');
+    expect(fixture.nativeElement.textContent).not.toContain('vincular reloj');
 
     app.portalProfile.role = 'admin';
     expect(app.navigationItems.map((item) => item.label)).toContain('Reportes clínicos');
@@ -235,19 +238,7 @@ describe('App', () => {
     };
     app.reportStatsAvailable = true;
     app.portalReports = [{ id: 'report-1' }, { id: 'report-2' }, { id: 'report-3' }];
-    app.wearables = [{
-      id: 'wearable-1',
-      nombre: 'Reloj de prueba',
-      modelo: 'Round',
-      estado: 'Conectado',
-      bateria: 80,
-      ritmoCardiaco: 72,
-      spo2: 98,
-      temperatura: 36.5,
-      ubicacion: 'Prueba',
-    }];
-
-    expect(app.statsHome.map((stat) => stat.valor)).toEqual(['7', '1', '12', '3']);
+    expect(app.statsHome.map((stat) => stat.valor)).toEqual(['7', '12', '3']);
   });
 
   it('opens the current user profile for patients, doctors, and administrators', () => {

@@ -90,6 +90,19 @@ export interface ClinicTurn {
   created_at: string;
 }
 
+export type ClinicalVideoCallStatus = 'ringing' | 'accepted' | 'declined' | 'ended' | 'expired';
+
+export interface ClinicalVideoCall {
+  id: string;
+  staff_uid: string;
+  patient_uid: string;
+  room_name: string;
+  status: ClinicalVideoCallStatus;
+  expires_at: string;
+  responded_at: string | null;
+  created_at: string;
+}
+
 export type DashboardTaskStatus = 'pendiente' | 'en_progreso' | 'completada' | 'cancelada';
 export type DashboardTaskPriority = 'alta' | 'media' | 'baja';
 
@@ -124,6 +137,23 @@ export interface DashboardMetrics {
 interface RuntimeConfig {
   supabaseUrl: string;
   supabasePublishableKey: string;
+}
+
+async function readReportResponse<T>(
+  response: Response,
+  failureMessage: string,
+): Promise<T> {
+  const body = await response.text();
+  try {
+    return JSON.parse(body) as T;
+  } catch {
+    const contentType = response.headers.get('content-type') ?? 'desconocido';
+    throw new Error(
+      `${failureMessage} El endpoint respondió contenido no JSON ` +
+      `(HTTP ${response.status}, ${contentType}). Verifica la ruta /api/core/reports ` +
+      'y la configuración del servidor de reportes.',
+    );
+  }
 }
 
 export class ClinicalPortalService {
@@ -321,10 +351,10 @@ export class ClinicalPortalService {
       headers: { Authorization: `Bearer ${session.access_token}` },
       cache: 'no-store',
     });
-    const payload = await response.json() as {
+    const payload = await readReportResponse<{
       reports?: Record<string, unknown>[];
       message?: string;
-    };
+    }>(response, 'No se pudieron cargar los reportes.');
     if (!response.ok) {
       throw new Error(payload.message ?? `No se pudieron cargar los reportes (HTTP ${response.status}).`);
     }
@@ -332,6 +362,38 @@ export class ClinicalPortalService {
       throw new Error('La API devolvió una respuesta de reportes no válida.');
     }
     return payload.reports;
+  }
+
+  async reviewClinicalReport(
+    reportId: string,
+    observations: string,
+  ): Promise<Record<string, unknown>> {
+    const { data: { session }, error: sessionError } = await this.supabase.auth.getSession();
+    if (sessionError) throw new Error(sessionError.message);
+    if (!session?.access_token) throw new Error('Inicia sesión para revisar reportes.');
+    const response = await this.fetcher(
+      `${this.reportsPath}/${encodeURIComponent(reportId)}/review`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ observations }),
+        cache: 'no-store',
+      },
+    );
+    const payload = await readReportResponse<{
+      report?: Record<string, unknown>;
+      message?: string;
+    }>(response, 'No se pudo guardar la revisión del reporte.');
+    if (!response.ok) {
+      throw new Error(payload.message ?? `No se pudo guardar la revisión (HTTP ${response.status}).`);
+    }
+    if (!payload.report || payload.report['reviewStatus'] !== 'reviewed') {
+      throw new Error('La API no confirmó el estado revisado del reporte.');
+    }
+    return payload.report;
   }
 
   async loadDoctorConversations(doctorUid: string): Promise<ClinicalConversation[]> {
@@ -636,6 +698,63 @@ export class ClinicalPortalService {
     return data as ClinicTurn[];
   }
 
+  async loadIncomingClinicalCall(patientUid: string): Promise<ClinicalVideoCall | null> {
+    const { data, error } = await this.supabase
+      .from('clinical_video_calls')
+      .select('id, staff_uid, patient_uid, room_name, status, expires_at, responded_at, created_at')
+      .eq('patient_uid', patientUid)
+      .eq('status', 'ringing')
+      .gt('expires_at', new Date().toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data as ClinicalVideoCall | null;
+  }
+
+  async loadClinicalVideoCall(callId: string): Promise<ClinicalVideoCall | null> {
+    const { data, error } = await this.supabase
+      .from('clinical_video_calls')
+      .select('id, staff_uid, patient_uid, room_name, status, expires_at, responded_at, created_at')
+      .eq('id', callId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data as ClinicalVideoCall | null;
+  }
+
+  async createClinicalVideoCall(
+    patientUid: string,
+    roomName: string,
+  ): Promise<ClinicalVideoCall> {
+    if (!/^BioMedicaDemo-[A-Za-z0-9_-]{24}$/.test(roomName)) {
+      throw new Error('No se pudo preparar la sala de llamada.');
+    }
+    const { data, error } = await this.supabase.rpc('create_clinical_video_call', {
+      target_patient_uid: patientUid,
+      target_room_name: roomName,
+    });
+    if (error) throw new Error(error.message);
+    if (!data || typeof data !== 'object') {
+      throw new Error('La invitación de llamada no pudo confirmarse.');
+    }
+    return data as ClinicalVideoCall;
+  }
+
+  async respondClinicalVideoCall(
+    callId: string,
+    response: 'accepted' | 'declined',
+  ): Promise<ClinicalVideoCall> {
+    const { data, error } = await this.supabase.rpc('respond_clinical_video_call', {
+      target_call_uid: callId,
+      target_response: response,
+    });
+    if (error) throw new Error(error.message);
+    if (!data || typeof data !== 'object') {
+      throw new Error('No se pudo confirmar la respuesta a la llamada.');
+    }
+    return data as ClinicalVideoCall;
+  }
+
   async loadDashboardTasks(): Promise<DashboardTask[]> {
     const { data, error } = await this.supabase
       .from('dashboard_tasks')
@@ -721,12 +840,21 @@ export class ClinicalPortalService {
     };
   }
 
-  async createClinicTurn(input: Omit<ClinicTurn, 'id' | 'created_at'>): Promise<void> {
-    const createdBy = await this.authenticatedUserId();
-    const { error } = await this.supabase
-      .from('clinic_turns')
-      .insert({ ...input, created_by: createdBy });
+  async createClinicTurn(
+    input: Pick<ClinicTurn, 'patient_uid' | 'service' | 'room' | 'priority' | 'eta_minutes'>,
+  ): Promise<ClinicTurn> {
+    const { data, error } = await this.supabase.rpc('create_clinic_turn', {
+      target_patient_uid: input.patient_uid,
+      target_service: input.service,
+      target_room: input.room,
+      target_priority: input.priority,
+      target_eta_minutes: input.eta_minutes,
+    });
     if (error) throw new Error(error.message);
+    if (!data || typeof data !== 'object') {
+      throw new Error('No se pudo confirmar el turno.');
+    }
+    return data as ClinicTurn;
   }
 
   async updateClinicTurn(
