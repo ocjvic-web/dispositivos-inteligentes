@@ -20,6 +20,12 @@ REPORT_DIR = Path(
         str(Path(tempfile.gettempdir()) / "biomedica-smarttv-test-results"),
     )
 )
+OBSERVATIONS_PATH = Path(
+    os.environ.get(
+        "TEST_OBSERVATIONS_PATH",
+        str(REPORT_DIR / "site-test-observations.json"),
+    )
+)
 API_PROBE_RESULTS = []
 UI_ACTION_RESULTS = []
 
@@ -145,9 +151,8 @@ def record_button_action(page):
 
 
 def pytest_sessionfinish(session, exitstatus):
-    REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    report_path = REPORT_DIR / "site-test-observations.json"
-    report_path.write_text(
+    OBSERVATIONS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    OBSERVATIONS_PATH.write_text(
         json.dumps(
             {
                 "exitStatus": exitstatus,

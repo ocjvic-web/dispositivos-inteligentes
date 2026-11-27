@@ -64,6 +64,7 @@ assert len(API_PROBE_CASES) >= 1000
         for contract, probe_number in API_PROBE_CASES
     ],
 )
+@pytest.mark.backend
 def test_site_api_contract_matrix(
     site_base_url,
     api_probe_recorder,

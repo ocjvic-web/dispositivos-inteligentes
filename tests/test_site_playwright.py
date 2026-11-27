@@ -1,6 +1,8 @@
+import pytest
 from playwright.sync_api import expect
 
 
+@pytest.mark.frontend
 def test_home_carousel_buttons_and_response_observations(
     page,
     site_base_url,
@@ -23,6 +25,7 @@ def test_home_carousel_buttons_and_response_observations(
     ).to_be_visible()
 
 
+@pytest.mark.frontend
 def test_turns_screen_hides_vitals_and_safety_alerts(
     page,
     site_base_url,
@@ -35,6 +38,7 @@ def test_turns_screen_hides_vitals_and_safety_alerts(
     expect(page.get_by_text("SpO₂ por debajo del umbral", exact=True)).to_have_count(0)
 
 
+@pytest.mark.frontend
 def test_protected_clinical_portal_requires_login(
     page,
     site_base_url,
