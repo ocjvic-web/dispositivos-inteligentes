@@ -121,6 +121,11 @@ def make_web_report(args, output_dir):
         for item in frontend_observations.get("uiActionsAndResponses", [])
         if "actionDurationMs" in item
     ]
+    network_observations = [
+        item
+        for item in frontend_observations.get("uiActionsAndResponses", [])
+        if "durationMs" in item and "method" in item
+    ]
 
     frontend_summary = summary(frontend_cases)
     backend_summary = summary(backend_cases)
@@ -187,6 +192,26 @@ def make_web_report(args, output_dir):
         + ("".join(action_rows) or "<tr><td colspan='4'>No hay acciones registradas.</td></tr>")
         + "</tbody></table>"
     )
+    network_rows = [
+        "<tr>"
+        f"<td>{esc(item.get('buttonName', 'page/navigation'))}</td>"
+        f"<td>{esc(item.get('method', ''))}</td>"
+        f"<td class='mono'>{esc(item.get('endpoint', ''))}</td>"
+        f"<td>HTTP {esc(item.get('httpStatus', 'N/A'))}</td>"
+        f"<td>{esc(item.get('durationMs', 'N/A'))} ms</td>"
+        "</tr>"
+        for item in network_observations
+    ]
+    network_table = (
+        "<h3>Respuestas HTTP observadas durante Playwright</h3>"
+        "<table class='data'><thead><tr><th>Origen</th><th>Método</th><th>Endpoint</th>"
+        "<th>Estado</th><th>Duración</th></tr></thead><tbody>"
+        + (
+            "".join(network_rows)
+            or "<tr><td colspan='5'>Sin solicitudes API/config registradas en el navegador.</td></tr>"
+        )
+        + "</tbody></table>"
+    )
 
     failed_backend_names = [
         case["name"] for case in backend_cases if case["failed"]
@@ -217,7 +242,7 @@ def make_web_report(args, output_dir):
         + "".join(api_rows)
         + "</tbody></table>"
     )
-    content = frontend_table + action_table + backend_table
+    content = frontend_table + action_table + network_table + backend_table
     html_content = report_html(
         "Reporte de pruebas frontend y backend",
         "Playwright UI y contratos API del sitio BioMedica SmartTV",
