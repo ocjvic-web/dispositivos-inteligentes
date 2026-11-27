@@ -261,12 +261,21 @@ def make_redbox_report(args, output_dir):
     steps = data.get("steps", [])
     passed = sum(int(step.get("ExitCode", 1)) == 0 for step in steps)
     failed = len(steps) - passed
+    test_cases = data.get("testCases", {})
+    test_count = int(test_cases.get("total", 0))
+    test_passed = int(test_cases.get("passed", 0))
+    test_failed = int(test_cases.get("failed", 0))
+    test_skipped = int(test_cases.get("skipped", 0))
     run_result = data.get("result", "NO EJECUTADO")
     metadata = {
         "Suite": data.get("suite", "caja-roja"),
         "Resultado global": run_result,
-        "Pruebas de suite": len(steps),
-        "Aprobadas / fallidas": f"{passed} / {failed}",
+        "Suites": len(steps),
+        "Pruebas individuales": test_count,
+        "Pruebas aprobadas / fallidas / omitidas": (
+            f"{test_passed} / {test_failed} / {test_skipped}"
+        ),
+        "Suites aprobadas / fallidas": f"{passed} / {failed}",
         "Inicio": data.get("startedAt", "No disponible"),
         "Fin": data.get("finishedAt", "No disponible"),
         "Commit": os.environ.get("GITHUB_SHA", "ejecución local"),
@@ -277,13 +286,23 @@ def make_redbox_report(args, output_dir):
         code = int(step.get("ExitCode", 1))
         state = "PASS" if code == 0 else "FAIL"
         rows.append(
-            "<tr>"
-            f"<td>{esc(step.get('Step', 'Prueba sin nombre'))}</td>"
-            f"<td>{status_badge(state)}</td>"
-            f"<td>{code}</td>"
-            f"<td>{esc(step.get('Seconds', 'N/A'))} s</td>"
-            "</tr>"
+            "<tr class='suite-row'>"
+            f"<td colspan='2'>{esc(step.get('Step', 'Suite sin nombre'))}</td>"
+            f"<td>{status_badge(state)}</td><td>exit {code}</td>"
+            f"<td>{esc(step.get('Seconds', 'N/A'))} s · "
+            f"{esc(step.get('TestCount', 0))} casos capturados</td></tr>"
         )
+        for test_case in step.get("Tests", []):
+            test_state = test_case.get("Result", "N/A")
+            duration = test_case.get("DurationMs")
+            duration_text = f"{duration} ms" if duration is not None else "N/A"
+            rows.append(
+                "<tr>"
+                "<td></td>"
+                f"<td>{esc(test_case.get('Name', 'Prueba sin nombre'))}</td>"
+                f"<td>{status_badge(test_state)}</td><td>—</td>"
+                f"<td>{duration_text}</td></tr>"
+            )
     log_name = data.get("logFile", "salida-terminal.log")
     note = (
         "Caja roja ejercita entradas inválidas y fallos controlados de conectividad/"
@@ -292,11 +311,14 @@ def make_redbox_report(args, output_dir):
     )
     content = (
         "<h2>Resultados por suite</h2>"
-        "<table class='data'><thead><tr><th>Escenario</th><th>Resultado</th>"
-        "<th>Código</th><th>Duración</th></tr></thead><tbody>"
+        f"<p>{test_passed} pruebas individuales aprobadas, {test_failed} fallidas y "
+        f"{test_skipped} omitidas, agrupadas en {len(steps)} suites. "
+        "El detalle conserva el nombre y duración capturados por Flutter y Node.</p>"
+        "<table class='data'><thead><tr><th>Suite / área</th><th>Prueba individual</th>"
+        "<th>Resultado</th><th>Código</th><th>Duración</th></tr></thead><tbody>"
         + (
             "".join(rows)
-            or "<tr><td colspan='4'>No se encontró un resumen JSON de caja roja.</td></tr>"
+            or "<tr><td colspan='5'>No se encontró un resumen JSON de caja roja.</td></tr>"
         )
         + "</tbody></table>"
         + f"<div class='note'>{esc(note)} Log incluido: <span class='mono'>{esc(log_name)}</span>.</div>"

@@ -18,8 +18,15 @@ const sessionSecret = process.env.SESSION_SECRET || '';
 const sessionTtlMs = Number(process.env.SESSION_TTL_MS || 1000 * 60 * 60 * 8);
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabasePublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY || '';
+const githubActionsToken = process.env.BIOMEDICA_TEST_RUNNER_GITHUB_TOKEN || '';
+const testRunnerRepository = process.env.BIOMEDICA_TEST_RUNNER_REPOSITORY
+  || 'vic0192/app-movil-integral';
+const testRunnerWorkflow = 'deployment-test-suite.yml';
 const coreApiUrl = process.env.BIOMEDICA_CORE_API_URL
   || 'https://app-biomedica-web.onrender.com';
+const testRunnerCooldowns = new Map();
+const testRunnerCooldownMs = 5 * 60 * 1000;
+let testRunnerDispatchInProgress = false;
 
 function nowIso() {
   return new Date().toISOString();
@@ -326,6 +333,181 @@ async function isActiveSupabaseAccount(authorization) {
   return Array.isArray(profiles) && profiles.length === 1 && profiles[0].is_active === true;
 }
 
+async function authorizeTestRunnerAdmin(req, res) {
+  const accessToken = extractBearerToken(req);
+  if (!accessToken) {
+    unauthorized(res, 'Inicia sesión como administrador para ejecutar las pruebas.');
+    return null;
+  }
+  if (!supabaseUrl || !supabasePublishableKey) {
+    sendJson(res, 503, { error: 'El servicio de pruebas no está configurado.' });
+    return null;
+  }
+
+  const baseUrl = supabaseUrl.replace(/\/+$/, '');
+  const headers = {
+    apikey: supabasePublishableKey,
+    authorization: `Bearer ${accessToken}`,
+  };
+  try {
+    const userResponse = await fetch(`${baseUrl}/auth/v1/user`, {
+      headers,
+      signal: AbortSignal.timeout(10000),
+    });
+    if (userResponse.status === 401 || userResponse.status === 403) {
+      unauthorized(res, 'La sesión expiró. Inicia sesión nuevamente.');
+      return null;
+    }
+    if (!userResponse.ok) {
+      sendJson(res, 502, { error: 'No se pudo validar la sesión administrativa.' });
+      return null;
+    }
+
+    const user = await userResponse.json();
+    if (typeof user.id !== 'string' || !user.id) {
+      unauthorized(res, 'La sesión no tiene un usuario válido.');
+      return null;
+    }
+
+    const profileUrl = new URL(`${baseUrl}/rest/v1/profiles`);
+    profileUrl.searchParams.set('id', `eq.${user.id}`);
+    profileUrl.searchParams.set('select', 'role,is_active');
+    const profileResponse = await fetch(profileUrl, {
+      headers,
+      signal: AbortSignal.timeout(10000),
+    });
+    if (profileResponse.status === 401 || profileResponse.status === 403) {
+      forbidden(res, 'No tienes permiso para consultar las pruebas.');
+      return null;
+    }
+    if (!profileResponse.ok) {
+      sendJson(res, 502, { error: 'No se pudo validar el rol administrativo.' });
+      return null;
+    }
+
+    const profiles = await profileResponse.json();
+    const profile = Array.isArray(profiles) ? profiles[0] : null;
+    if (!profile || profile.is_active !== true || profile.role !== 'admin') {
+      forbidden(res, 'Solo un administrador activo puede ejecutar las pruebas.');
+      return null;
+    }
+    return user.id;
+  } catch (error) {
+    console.error('Test runner authentication failed:', error.message);
+    sendJson(res, 502, { error: 'No se pudo validar el acceso para las pruebas.' });
+    return null;
+  }
+}
+
+function createTestRunTicket(requestId, userId) {
+  const payload = Buffer.from(JSON.stringify({
+    requestId,
+    userId,
+    expiresAt: Date.now() + 3 * 60 * 60 * 1000,
+  })).toString('base64url');
+  const signature = crypto
+    .createHmac('sha256', sessionSecret)
+    .update(payload)
+    .digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+function verifyTestRunTicket(ticket) {
+  if (!sessionSecret || typeof ticket !== 'string') return null;
+  const [payload, signature] = ticket.split('.');
+  if (!payload || !signature) return null;
+  const expected = crypto
+    .createHmac('sha256', sessionSecret)
+    .update(payload)
+    .digest('base64url');
+  const receivedBytes = Buffer.from(signature);
+  const expectedBytes = Buffer.from(expected);
+  if (
+    receivedBytes.length !== expectedBytes.length
+    || !crypto.timingSafeEqual(receivedBytes, expectedBytes)
+  ) {
+    return null;
+  }
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (
+      typeof decoded.requestId !== 'string'
+      || !/^[0-9a-f-]{36}$/i.test(decoded.requestId)
+      || typeof decoded.userId !== 'string'
+      || !Number.isFinite(decoded.expiresAt)
+      || Date.now() > decoded.expiresAt
+    ) {
+      return null;
+    }
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+function testRunnerRepoPath() {
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(testRunnerRepository)) {
+    throw new Error('Test runner repository configuration is invalid.');
+  }
+  return testRunnerRepository.split('/').map(encodeURIComponent).join('/');
+}
+
+async function githubActionsRequest(apiPath, method = 'GET', body) {
+  if (!githubActionsToken) {
+    throw new Error('Test runner credentials are not configured.');
+  }
+  const response = await fetch(`https://api.github.com/repos/${testRunnerRepoPath()}${apiPath}`, {
+    method,
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${githubActionsToken}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) {
+    throw new Error(`GitHub Actions API returned HTTP ${response.status}.`);
+  }
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function findDispatchedTestRun(requestId) {
+  const runsUrl = `/actions/workflows/${testRunnerWorkflow}/runs?event=workflow_dispatch&branch=main&per_page=50`;
+  const data = await githubActionsRequest(runsUrl);
+  return (data.workflow_runs || []).find((run) => (
+    [run.display_title, run.name].some((title) => (
+      typeof title === 'string' && title.includes(requestId)
+    ))
+  )) || null;
+}
+
+async function getTestRunArtifacts(runId) {
+  const data = await githubActionsRequest(`/actions/runs/${runId}/artifacts?per_page=100`);
+  return (data.artifacts || [])
+    .filter((artifact) => (
+      artifact.expired !== true
+      && (
+        artifact.name.startsWith('pruebas-frontend-backend-')
+        || artifact.name.startsWith('pruebas-caja-roja-')
+      )
+    ))
+    .map((artifact) => ({
+      id: artifact.id,
+      name: artifact.name,
+      expiresAt: artifact.expires_at,
+    }));
+}
+
+async function getAuthorizedTestRun(ticket, userId) {
+  const decoded = verifyTestRunTicket(ticket);
+  if (!decoded || decoded.userId !== userId) return null;
+  const run = await findDispatchedTestRun(decoded.requestId);
+  return { decoded, run };
+}
+
 function readBody(req) {
   return new Promise((resolve) => {
     let data = '';
@@ -479,6 +661,172 @@ const server = http.createServer(async (req, res) => {
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     });
     res.end();
+    return;
+  }
+
+  if (pathname === '/api/test-runs' && req.method === 'POST') {
+    const userId = await authorizeTestRunnerAdmin(req, res);
+    if (!userId) return;
+    if (!sessionSecret || !githubActionsToken) {
+      sendJson(res, 503, {
+        error: 'El servicio de pruebas temporales todavía no está habilitado.',
+      });
+      return;
+    }
+
+    const lastRunAt = testRunnerCooldowns.get(userId) || 0;
+    const remainingCooldown = testRunnerCooldownMs - (Date.now() - lastRunAt);
+    if (remainingCooldown > 0) {
+      sendJson(res, 429, {
+        error: `Espera ${Math.ceil(remainingCooldown / 1000)} segundos antes de iniciar otra ejecución.`,
+      });
+      return;
+    }
+    if (testRunnerDispatchInProgress) {
+      sendJson(res, 409, {
+        error: 'Ya se está iniciando otra ejecución completa de pruebas. Inténtalo en un momento.',
+      });
+      return;
+    }
+
+    testRunnerDispatchInProgress = true;
+    try {
+      const workflowPath = `/actions/workflows/${testRunnerWorkflow}/runs`;
+      const [queued, running] = await Promise.all([
+        githubActionsRequest(`${workflowPath}?event=workflow_dispatch&branch=main&status=queued&per_page=1`),
+        githubActionsRequest(`${workflowPath}?event=workflow_dispatch&branch=main&status=in_progress&per_page=1`),
+      ]);
+      if ((queued.workflow_runs || []).length || (running.workflow_runs || []).length) {
+        sendJson(res, 409, {
+          error: 'Ya hay una ejecución completa de pruebas en curso. Inténtalo cuando termine.',
+        });
+        return;
+      }
+
+      const requestId = crypto.randomUUID();
+      await githubActionsRequest(
+        `/actions/workflows/${testRunnerWorkflow}/dispatches`,
+        'POST',
+        { ref: 'main', inputs: { request_id: requestId } },
+      );
+      testRunnerCooldowns.set(userId, Date.now());
+      const ticket = createTestRunTicket(requestId, userId);
+      sendJson(res, 202, {
+        requestId,
+        ticket,
+        status: 'queued',
+        message: 'Ejecución completa de pruebas enviada a la cola.',
+      });
+    } catch (error) {
+      console.error('Could not dispatch the full test suite:', error.message);
+      sendJson(res, 502, {
+        error: 'No se pudo iniciar la ejecución completa de pruebas.',
+      });
+    } finally {
+      testRunnerDispatchInProgress = false;
+    }
+    return;
+  }
+
+  const testRunMatch = pathname.match(/^\/api\/test-runs\/([^/]+)$/);
+  if (testRunMatch && req.method === 'GET') {
+    const userId = await authorizeTestRunnerAdmin(req, res);
+    if (!userId) return;
+    const ticket = testRunMatch[1];
+    const decoded = verifyTestRunTicket(ticket);
+    if (!decoded || decoded.userId !== userId) {
+      sendJson(res, 404, { error: 'No se encontró esta ejecución de pruebas.' });
+      return;
+    }
+
+    try {
+      const run = await findDispatchedTestRun(decoded.requestId);
+      if (!run) {
+        sendJson(res, 202, {
+          requestId: decoded.requestId,
+          status: 'queued',
+          artifacts: [],
+        });
+        return;
+      }
+      const artifacts = run.status === 'completed'
+        ? await getTestRunArtifacts(run.id)
+        : [];
+      sendJson(res, 200, {
+        requestId: decoded.requestId,
+        runId: run.id,
+        runUrl: run.html_url,
+        status: run.status,
+        conclusion: run.conclusion,
+        artifacts,
+      });
+    } catch (error) {
+      console.error('Could not read full test suite status:', error.message);
+      sendJson(res, 502, { error: 'No se pudo consultar el avance de las pruebas.' });
+    }
+    return;
+  }
+
+  const testArtifactMatch = pathname.match(/^\/api\/test-runs\/([^/]+)\/artifacts\/(\d+)$/);
+  if (testArtifactMatch && req.method === 'GET') {
+    const userId = await authorizeTestRunnerAdmin(req, res);
+    if (!userId) return;
+    const ticket = testArtifactMatch[1];
+    const artifactId = Number(testArtifactMatch[2]);
+    const decoded = verifyTestRunTicket(ticket);
+    if (!decoded || decoded.userId !== userId) {
+      sendJson(res, 404, { error: 'No se encontró esta ejecución de pruebas.' });
+      return;
+    }
+
+    try {
+      const run = await findDispatchedTestRun(decoded.requestId);
+      if (!run || run.status !== 'completed') {
+        sendJson(res, 409, { error: 'Los reportes estarán disponibles cuando terminen las pruebas.' });
+        return;
+      }
+      const artifacts = await getTestRunArtifacts(run.id);
+      const artifact = artifacts.find((item) => item.id === artifactId);
+      if (!artifact) {
+        sendJson(res, 404, { error: 'El reporte solicitado no está disponible.' });
+        return;
+      }
+
+      const repoPath = testRunnerRepoPath();
+      const upstream = await fetch(
+        `https://api.github.com/repos/${repoPath}/actions/artifacts/${artifact.id}/zip`,
+        {
+          headers: {
+            Accept: 'application/vnd.github+json',
+            Authorization: `Bearer ${githubActionsToken}`,
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+          signal: AbortSignal.timeout(30000),
+        },
+      );
+      if (!upstream.ok) {
+        sendJson(res, 502, { error: 'No se pudo descargar el reporte de pruebas.' });
+        return;
+      }
+      const archive = Buffer.from(await upstream.arrayBuffer());
+      if (archive.length > 25 * 1024 * 1024) {
+        sendJson(res, 413, { error: 'El archivo del reporte excede el tamaño permitido.' });
+        return;
+      }
+      const filename = `${artifact.name.replace(/[^A-Za-z0-9._-]/g, '-')}.zip`;
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Length': archive.length,
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(archive);
+    } catch (error) {
+      console.error('Could not download test report:', error.message);
+      sendJson(res, 502, { error: 'No se pudo descargar el reporte de pruebas.' });
+    }
     return;
   }
 

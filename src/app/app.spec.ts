@@ -96,6 +96,39 @@ describe('App', () => {
     expect(app.navigationItems.map((item) => item.label)).toContain('Reportes clínicos');
   });
 
+  it('shows the temporary test runner only to administrators', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    const compiled = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('.footer-test-button')).toBeNull();
+    for (const role of ['patient', 'doctor'] as const) {
+      app.portalProfile = {
+        id: `${role}-user`,
+        email: `${role}@example.com`,
+        first_name: role,
+        last_name: 'Prueba',
+        role,
+        is_active: true,
+      };
+      fixture.detectChanges();
+      expect(compiled.querySelector('.footer-test-button')).toBeNull();
+    }
+
+    app.portalProfile = {
+      id: 'admin-user',
+      email: 'admin@example.com',
+      first_name: 'Admin',
+      last_name: 'Prueba',
+      role: 'admin',
+      is_active: true,
+    };
+    fixture.detectChanges();
+    expect(compiled.querySelector('.footer-test-button')?.textContent)
+      .toContain('Botón temporal para pruebas');
+  });
+
   it('keeps patient vitals and clinical alerts off the public turns screen', () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;

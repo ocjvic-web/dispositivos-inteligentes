@@ -87,6 +87,21 @@ interface SesionAdministrador {
   expiresAt: string;
 }
 
+interface TemporaryTestArtifact {
+  id: number;
+  name: string;
+  expiresAt: string;
+}
+
+interface TemporaryTestRunStatus {
+  requestId: string;
+  runId?: number;
+  runUrl?: string;
+  status: 'queued' | 'in_progress' | 'completed';
+  conclusion?: string | null;
+  artifacts: TemporaryTestArtifact[];
+}
+
 interface TurnoAtencion {
   id: string;
   codigo: string;
@@ -184,6 +199,13 @@ export class App implements OnInit, OnDestroy {
     contactPhone: '',
   };
   portalLoginPasswordVisible = false;
+  temporaryTestBusy = false;
+  temporaryTestFinished = false;
+  temporaryTestTicket = '';
+  temporaryTestRunUrl = '';
+  temporaryTestMessage = '';
+  temporaryTestArtifacts: TemporaryTestArtifact[] = [];
+  temporaryTestDownloadingArtifactId: number | null = null;
   portalPasswordVisible = false;
   portalTermsOpen = false;
   portalTermsReadToEnd = false;
@@ -895,6 +917,117 @@ export class App implements OnInit, OnDestroy {
     } finally {
       this.portalBusy = false;
     }
+  }
+
+  async runTemporaryTests(): Promise<void> {
+    if (this.portalProfile?.role !== 'admin' || this.temporaryTestBusy) return;
+    this.temporaryTestBusy = true;
+    this.temporaryTestMessage = this.temporaryTestTicket
+      ? 'Consultando el estado de la ejecución…'
+      : 'Preparando la ejecución completa…';
+    this.temporaryTestArtifacts = [];
+    try {
+      const { data: { session }, error } = await this.clinicalPortal.supabase.auth.getSession();
+      if (error) throw new Error(error.message);
+      if (!session?.access_token) {
+        throw new Error('Tu sesión expiró. Inicia sesión nuevamente como administrador.');
+      }
+
+      if (!this.temporaryTestTicket) {
+        const started = await this.requestTemporaryTestApi<{
+          ticket: string;
+          message: string;
+        }>('/api/test-runs', session.access_token, { method: 'POST' });
+        this.temporaryTestTicket = started.ticket;
+        this.temporaryTestMessage = started.message;
+      }
+
+      for (let attempt = 0; attempt < 720; attempt += 1) {
+        const run = await this.requestTemporaryTestApi<TemporaryTestRunStatus>(
+          `/api/test-runs/${encodeURIComponent(this.temporaryTestTicket)}`,
+          session.access_token,
+        );
+        this.temporaryTestArtifacts = run.artifacts ?? [];
+        this.temporaryTestRunUrl = run.runUrl ?? '';
+        if (run.status === 'completed') {
+          this.temporaryTestFinished = true;
+          this.temporaryTestMessage = run.conclusion === 'success'
+            ? 'Todas las pruebas terminaron correctamente. Ya puedes descargar los reportes.'
+            : 'Las pruebas terminaron con errores. Descarga los reportes para revisar el resultado.';
+          return;
+        }
+        this.temporaryTestMessage = run.status === 'in_progress'
+          ? 'Las pruebas están ejecutándose. Esta ejecución incluye el sitio, APIs y caja roja móvil…'
+          : 'La ejecución está en cola en GitHub Actions…';
+        await new Promise((resolve) => window.setTimeout(resolve, 5000));
+      }
+      this.temporaryTestMessage = 'La ejecución sigue activa. Pulsa el botón para consultar su avance.';
+    } catch (error) {
+      this.temporaryTestMessage = error instanceof Error
+        ? error.message
+        : 'No se pudo ejecutar las pruebas. Inténtalo más tarde.';
+    } finally {
+      this.temporaryTestBusy = false;
+    }
+  }
+
+  async downloadTemporaryTestArtifact(artifact: TemporaryTestArtifact): Promise<void> {
+    if (this.portalProfile?.role !== 'admin' || !this.temporaryTestTicket) return;
+    this.temporaryTestDownloadingArtifactId = artifact.id;
+    this.temporaryTestMessage = 'Descargando el reporte…';
+    try {
+      const { data: { session }, error } = await this.clinicalPortal.supabase.auth.getSession();
+      if (error) throw new Error(error.message);
+      if (!session?.access_token) {
+        throw new Error('Tu sesión expiró. Inicia sesión nuevamente como administrador.');
+      }
+      const response = await fetch(
+        this.api(`/api/test-runs/${encodeURIComponent(this.temporaryTestTicket)}/artifacts/${artifact.id}`),
+        { headers: { Authorization: `Bearer ${session.access_token}` } },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload && typeof payload.error === 'string'
+          ? payload.error
+          : `No se pudo descargar el reporte (HTTP ${response.status}).`);
+      }
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = `${artifact.name}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+      this.temporaryTestMessage = 'Descarga iniciada.';
+    } catch (error) {
+      this.temporaryTestMessage = error instanceof Error
+        ? error.message
+        : 'No se pudo descargar el reporte. Inténtalo nuevamente.';
+    } finally {
+      this.temporaryTestDownloadingArtifactId = null;
+    }
+  }
+
+  private async requestTemporaryTestApi<T>(
+    path: string,
+    accessToken: string,
+    init: RequestInit = {},
+  ): Promise<T> {
+    const headers = new Headers(init.headers);
+    headers.set('Authorization', `Bearer ${accessToken}`);
+    if (init.method === 'POST') headers.set('Content-Type', 'application/json');
+    const response = await fetch(this.api(path), {
+      ...init,
+      headers,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload && typeof payload.error === 'string'
+        ? payload.error
+        : `No se pudo completar la solicitud de pruebas (HTTP ${response.status}).`);
+    }
+    return payload as T;
   }
 
   setPortalAuthMode(mode: 'login' | 'register'): void {

@@ -1580,6 +1580,50 @@ a {
   font-size: 0.78rem;
 }
 
+.footer-test-tools {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 20px 20px;
+}
+
+.footer-test-button,
+.footer-test-download {
+  min-height: 40px;
+  border: 1px solid rgba(191, 219, 254, 0.45);
+  border-radius: 10px;
+  padding: 9px 14px;
+  color: #eff6ff;
+  background: rgba(37, 99, 235, 0.28);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.footer-test-download {
+  background: rgba(15, 118, 110, 0.32);
+}
+
+.footer-test-button:disabled,
+.footer-test-download:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.footer-test-message {
+  flex-basis: 100%;
+  margin: 0;
+  color: #dce8ff;
+  text-align: center;
+}
+
+.footer-test-run-link {
+  color: #bfdbfe;
+  font-weight: 700;
+}
+
 .flutter-badge {
   display: flex;
   align-items: center;

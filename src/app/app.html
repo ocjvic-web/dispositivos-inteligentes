@@ -1472,4 +1472,42 @@
     <span>© 2026 <strong>BioMedica</strong> · Plataforma Clínica</span>
     <span>Todos los derechos reservados</span>
   </div>
+  @if (portalProfile?.role === 'admin') {
+    <div class="footer-test-tools">
+      <button
+        class="footer-test-button"
+        type="button"
+        (click)="runTemporaryTests()"
+        [disabled]="temporaryTestBusy || temporaryTestFinished">
+        {{ temporaryTestBusy
+          ? 'Ejecutando pruebas…'
+          : temporaryTestFinished
+            ? 'Pruebas temporales completadas'
+            : temporaryTestTicket
+              ? 'Consultar pruebas temporales'
+              : 'Botón temporal para pruebas' }}
+      </button>
+      @if (temporaryTestMessage) {
+        <p class="footer-test-message" role="status" aria-live="polite">{{ temporaryTestMessage }}</p>
+      }
+      @if (temporaryTestRunUrl) {
+        <a class="footer-test-run-link" [href]="temporaryTestRunUrl" target="_blank" rel="noopener">
+          Ver ejecución en GitHub Actions
+        </a>
+      }
+      @for (artifact of temporaryTestArtifacts; track artifact.id) {
+        <button
+          class="footer-test-download"
+          type="button"
+          (click)="downloadTemporaryTestArtifact(artifact)"
+          [disabled]="temporaryTestDownloadingArtifactId === artifact.id">
+          {{ temporaryTestDownloadingArtifactId === artifact.id
+            ? 'Descargando…'
+            : artifact.name.startsWith('pruebas-caja-roja-')
+              ? 'Descargar reporte caja roja (ZIP con PDF)'
+              : 'Descargar reporte frontend y backend (ZIP con PDF)' }}
+        </button>
+      }
+    </div>
+  }
 </footer>
