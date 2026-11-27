@@ -169,6 +169,72 @@
   width: 100%;
 }
 
+.clinical-vitals-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.clinical-vitals-section h4 {
+  margin: 0 0 8px;
+  color: #173c78;
+}
+
+.clinical-vitals-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.clinical-vitals-row > span {
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+  overflow-wrap: anywhere;
+}
+
+.clinical-health-record-list {
+  display: grid;
+  gap: 8px;
+  max-height: 560px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.clinical-health-record-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(150px, 1.2fr) minmax(90px, auto) minmax(180px, 1fr) minmax(140px, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.clinical-health-record-row > span {
+  color: var(--ink-soft);
+  font-size: 0.84rem;
+  overflow-wrap: anywhere;
+}
+
+.doctor-turns-card {
+  margin-top: 20px;
+  border-color: #cbdcf8;
+  background: linear-gradient(155deg, #fff 0%, #f8fbff 100%);
+}
+
+.doctor-turns-card h4 {
+  margin: 0 0 8px;
+  color: #173c78;
+}
+
+.doctor-turns-card .form-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .support-grid {
   grid-template-columns: minmax(250px, 0.8fr) minmax(0, 1.5fr);
 }
@@ -177,13 +243,32 @@
   max-width: 230px;
 }
 
-.admin-portal-grid > .portal-card {
+.admin-portal-grid .portal-card {
   border-top: 3px solid #2a73ec;
   background: linear-gradient(155deg, #fff 0%, #f8fbff 100%);
 }
 
-.admin-portal-grid > .portal-card h3 {
+.admin-portal-grid .portal-card h3 {
   color: #173c78;
+}
+
+.admin-clinical-column {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.admin-clinical-column .doctor-requests-card {
+  order: 1;
+}
+
+.admin-clinical-column .portal-assignment-card {
+  order: 2;
+}
+
+.admin-clinical-column .portal-turns-card {
+  order: 3;
 }
 
 .portal-users-card {
@@ -332,6 +417,44 @@
 .portal-auth-form {
   display: grid;
   gap: 12px;
+}
+
+.portal-password-field {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.portal-password-field input {
+  min-width: 0;
+  flex: 1;
+}
+
+.portal-password-toggle {
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  color: var(--primary);
+  background: #f7faff;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.portal-password-toggle:hover {
+  background: #eaf2ff;
+}
+
+.portal-password-toggle:focus-visible {
+  outline: 3px solid rgba(32, 95, 199, 0.2);
+  outline-offset: 2px;
+}
+
+.portal-password-toggle-register {
+  justify-self: start;
 }
 
 .portal-auth-form .form-row {
@@ -748,6 +871,14 @@
     grid-template-columns: 1fr;
   }
 
+  .admin-clinical-column {
+    grid-column: 1;
+  }
+
+  .clinical-health-record-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .portal-grid > .portal-card:nth-child(3),
   .admin-portal-grid > .portal-card:nth-child(3) {
     grid-column: auto;
@@ -808,5 +939,10 @@
   .portal-profile-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .clinical-health-record-row,
+  .doctor-turns-card .form-row {
+    grid-template-columns: 1fr;
   }
 }

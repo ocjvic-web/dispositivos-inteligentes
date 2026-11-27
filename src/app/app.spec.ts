@@ -306,6 +306,140 @@ describe('App', () => {
     expect(compiled.querySelector('#other-chronic-condition')).toBeFalsy();
   });
 
+  it('toggles password visibility on login and registration forms', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.portalReady = true;
+    app.navegar('admin');
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const loginPassword = compiled.querySelector('#portal-password') as HTMLInputElement;
+    const loginToggle = compiled.querySelector('.portal-password-toggle') as HTMLButtonElement;
+    expect(loginPassword.type).toBe('password');
+    loginToggle.click();
+    fixture.detectChanges();
+    expect(loginPassword.type).toBe('text');
+    loginToggle.click();
+    fixture.detectChanges();
+    expect(loginPassword.type).toBe('password');
+
+    app.setPortalAuthMode('register');
+    fixture.detectChanges();
+    const registrationPassword = compiled.querySelector('#registration-password') as HTMLInputElement;
+    const confirmationPassword = compiled.querySelector('#registration-confirm-password') as HTMLInputElement;
+    const registrationToggle = compiled.querySelector('.portal-password-toggle-register') as HTMLButtonElement;
+    expect(registrationPassword.type).toBe('password');
+    expect(confirmationPassword.type).toBe('password');
+    registrationToggle.click();
+    fixture.detectChanges();
+    expect(registrationPassword.type).toBe('text');
+    expect(confirmationPassword.type).toBe('text');
+  });
+
+  it('places clinical assignments in the open admin column above turn management', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.portalReady = true;
+    app.portalProfile = {
+      id: 'admin-user',
+      email: 'admin@example.com',
+      first_name: 'Admin',
+      last_name: 'Prueba',
+      role: 'admin',
+      is_active: true,
+    };
+    app.navegar('admin');
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    const clinicalColumn = compiled.querySelector('.admin-clinical-column') as HTMLElement;
+    const requests = clinicalColumn.querySelector('.doctor-requests-card');
+    const assignments = clinicalColumn.querySelector('.portal-assignment-card');
+    const turns = clinicalColumn.querySelector('.portal-turns-card');
+    expect(requests).toBeTruthy();
+    expect(assignments).toBeTruthy();
+    expect(turns).toBeTruthy();
+    expect(getComputedStyle(assignments as HTMLElement).order).toBe('2');
+    expect(getComputedStyle(turns as HTMLElement).order).toBe('3');
+  });
+
+  it('shows patient health records and assigned turn controls to doctors', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    window.history.replaceState({}, '', '/reportes-clinicos');
+    spyOn(app, 'initializePortal').and.resolveTo();
+    app.portalReady = true;
+    app.portalProfile = {
+      id: 'doctor-user',
+      email: 'doctor@example.com',
+      first_name: 'Doctora',
+      last_name: 'Prueba',
+      role: 'doctor',
+      is_active: true,
+    };
+    app.portalPatients = [{
+      id: 'patient-user',
+      email: 'patient@example.com',
+      first_name: 'Paciente',
+      last_name: 'Prueba',
+      role: 'patient',
+      is_active: true,
+      date_of_birth: '1990-01-02',
+      chronic_conditions: ['Hipertensión arterial'],
+    }];
+    app.portalReports = [{
+      id: 'report-1',
+      ownerUid: 'patient-user',
+      malestar: 'Palpitaciones',
+      priority: 'Media',
+      reviewStatus: 'pending',
+      createdAt: '2026-11-27T12:00:00Z',
+    }];
+    app.portalMeasurements = [{
+      id: 'measurement-1',
+      owner_uid: 'patient-user',
+      reading_at: '2026-11-27T12:00:00Z',
+      device_name: 'Galaxy Watch',
+      heart_rate_bpm: 82,
+      sensor_readings: {
+        ecg: { label: 'ECG', unit: 'mV', values: [0.2, 0.4] },
+      },
+    }];
+    app.portalHealthConnectRecords = [{
+      id: 'health-record-1',
+      owner_uid: 'patient-user',
+      data_type: 'BLOOD_OXYGEN',
+      label: 'Oxígeno en sangre (SpO₂)',
+      value: 98,
+      unit: 'PERCENT',
+      recorded_at: '2026-11-27T11:00:00Z',
+      ended_at: '2026-11-27T11:00:00Z',
+      source_name: 'Samsung Health',
+      source_id: 'com.sec.android.app.shealth',
+    }];
+    app.clinicTurns = [{
+      id: 'turn-1',
+      ticket_code: 'T-000001',
+      patient_uid: 'patient-user',
+      service: 'Consulta general',
+      room: 'Consultorio 1',
+      priority: 'media',
+      status: 'en_espera',
+      eta_minutes: 10,
+      created_at: '2026-11-27T11:00:00Z',
+    }];
+    fixture.detectChanges();
+
+    const compiled = fixture.nativeElement as HTMLElement;
+    expect(compiled.textContent).toContain('Antecedentes registrados: Hipertensión arterial');
+    expect(compiled.textContent).toContain('ECG: 0.2, 0.4 mV');
+    expect(compiled.textContent).toContain('98 %');
+    expect(compiled.textContent).toContain('Samsung Health');
+    expect(compiled.querySelector('#doctor-turn-patient')).toBeTruthy();
+    expect(compiled.textContent).toContain('T-000001 · Paciente Prueba');
+  });
+
   it('requires reading the terms before allowing registration acceptance', () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;

@@ -333,14 +333,43 @@ export class ClinicalPortalService {
 
   async loadPatientMeasurements(patientUids: string[]): Promise<Record<string, unknown>[]> {
     if (patientUids.length === 0) return [];
-    const { data, error } = await this.supabase
-      .from('measurements')
-      .select('id, owner_uid, reading_at, device_name, heart_rate_bpm, oxygen_saturation_percent, body_temperature_celsius')
-      .in('owner_uid', patientUids)
-      .order('reading_at', { ascending: false })
-      .limit(500);
-    if (error) throw new Error(error.message);
-    return data ?? [];
+    const pageSize = 500;
+    const measurements: Record<string, unknown>[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await this.supabase
+        .from('measurements')
+        .select('id, owner_uid, reading_at, device_name, heart_rate_bpm, oxygen_saturation_percent, body_temperature_celsius, sensor_readings')
+        .in('owner_uid', patientUids)
+        .order('reading_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(offset, offset + pageSize - 1);
+      if (error) throw new Error(error.message);
+      const page = data ?? [];
+      measurements.push(...page);
+      if (page.length < pageSize) return measurements;
+    }
+  }
+
+  async loadPatientHealthConnectRecords(
+    patientUids?: string[],
+  ): Promise<Record<string, unknown>[]> {
+    if (patientUids?.length === 0) return [];
+    const pageSize = 500;
+    const records: Record<string, unknown>[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      let query = this.supabase
+        .from('health_connect_records')
+        .select('id, owner_uid, data_type, label, value, unit, recorded_at, ended_at, source_name, source_id');
+      if (patientUids) query = query.in('owner_uid', patientUids);
+      const { data, error } = await query
+        .order('recorded_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(offset, offset + pageSize - 1);
+      if (error) throw new Error(error.message);
+      const page = data ?? [];
+      records.push(...page);
+      if (page.length < pageSize) return records;
+    }
   }
 
   async loadAssignedReports(): Promise<Record<string, unknown>[]> {
@@ -554,7 +583,7 @@ export class ClinicalPortalService {
     const [profiles, credentials, assignments] = await Promise.all([
       this.supabase
         .from('profiles')
-        .select('id, email, first_name, last_name, role, is_active')
+        .select('id, email, first_name, last_name, date_of_birth, chronic_conditions, role, is_active')
         .order('first_name'),
       this.supabase
         .from('doctor_credentials')
@@ -689,11 +718,13 @@ export class ClinicalPortalService {
     if (error) throw new Error(error.message);
   }
 
-  async loadClinicTurns(): Promise<ClinicTurn[]> {
-    const { data, error } = await this.supabase
+  async loadClinicTurns(patientUids?: string[]): Promise<ClinicTurn[]> {
+    if (patientUids?.length === 0) return [];
+    let query = this.supabase
       .from('clinic_turns')
-      .select('id, ticket_code, patient_uid, service, room, priority, status, eta_minutes, created_at')
-      .order('created_at', { ascending: false });
+      .select('id, ticket_code, patient_uid, service, room, priority, status, eta_minutes, created_at');
+    if (patientUids) query = query.in('patient_uid', patientUids);
+    const { data, error } = await query.order('created_at', { ascending: false });
     if (error) throw new Error(error.message);
     return data as ClinicTurn[];
   }
@@ -861,11 +892,14 @@ export class ClinicalPortalService {
     id: string,
     changes: Pick<ClinicTurn, 'status' | 'eta_minutes'>,
   ): Promise<void> {
-    const { error } = await this.supabase
+    const { data, error } = await this.supabase
       .from('clinic_turns')
       .update(changes)
-      .eq('id', id);
+      .eq('id', id)
+      .select('id')
+      .single();
     if (error) throw new Error(error.message);
+    if (!data) throw new Error('No se confirmó la actualización del turno.');
   }
 
   private async authenticatedUserId(): Promise<string> {

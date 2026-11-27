@@ -494,7 +494,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (pathname === '/api/core/reports' && req.method === 'GET') {
+  const reportReviewMatch = pathname.match(/^\/api\/core\/reports\/([^/]+)\/review$/);
+  if (
+    (pathname === '/api/core/reports' && req.method === 'GET')
+    || (reportReviewMatch && req.method === 'PATCH')
+  ) {
     const authorization = req.headers.authorization || '';
     if (!/^Bearer\s+\S+$/.test(authorization)) {
       unauthorized(res, 'Inicia sesión para consultar los reportes.');
@@ -520,10 +524,16 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     try {
+      const requestHeaders = { authorization };
+      if (reportReviewMatch) requestHeaders['Content-Type'] = 'application/json';
       const upstream = await fetch(
-        `${coreApiUrl.replace(/\/+$/, '')}/api/reports`,
+        `${coreApiUrl.replace(/\/+$/, '')}/api/reports${
+          reportReviewMatch ? `/${reportReviewMatch[1]}/review` : ''
+        }`,
         {
-          headers: { authorization },
+          method: req.method,
+          headers: requestHeaders,
+          body: reportReviewMatch ? JSON.stringify(await readBody(req)) : undefined,
           signal: AbortSignal.timeout(10000),
         },
       );

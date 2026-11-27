@@ -182,6 +182,7 @@ export class App implements OnInit, OnDestroy {
     institution: '',
     contactPhone: '',
   };
+  portalLoginPasswordVisible = false;
   portalPasswordVisible = false;
   portalTermsOpen = false;
   portalTermsReadToEnd = false;
@@ -254,6 +255,7 @@ export class App implements OnInit, OnDestroy {
   portalReports: Record<string, unknown>[] = [];
   reportObservationsDraft: Record<string, string> = {};
   portalMeasurements: Record<string, unknown>[] = [];
+  portalHealthConnectRecords: Record<string, unknown>[] = [];
   incomingClinicalCall: ClinicalVideoCall | null = null;
   activeClinicalCall: ClinicalVideoCall | null = null;
   activeClinicalCallReportId = '';
@@ -892,6 +894,8 @@ export class App implements OnInit, OnDestroy {
 
   setPortalAuthMode(mode: 'login' | 'register'): void {
     this.portalAuthMode = mode;
+    this.portalLoginPasswordVisible = false;
+    this.portalPasswordVisible = false;
     this.portalError = '';
     this.portalStatus = '';
   }
@@ -1085,6 +1089,7 @@ export class App implements OnInit, OnDestroy {
       this.portalPatients = [];
       this.portalReports = [];
       this.portalMeasurements = [];
+      this.portalHealthConnectRecords = [];
       this.portalConversations = [];
       this.portalMessages = [];
       this.portalUsers = [];
@@ -1136,6 +1141,7 @@ export class App implements OnInit, OnDestroy {
         this.portalPatients = [];
         this.portalReports = [];
         this.portalMeasurements = [];
+        this.portalHealthConnectRecords = [];
         this.portalConversations = [];
         this.portalMessages = [];
         this.portalUsers = [];
@@ -1156,6 +1162,7 @@ export class App implements OnInit, OnDestroy {
         this.portalPatients = [];
         this.portalReports = [];
         this.portalMeasurements = [];
+        this.portalHealthConnectRecords = [];
         this.portalConversations = [];
         this.portalMessages = [];
         this.incomingClinicalCall = null;
@@ -1166,10 +1173,14 @@ export class App implements OnInit, OnDestroy {
         return;
       }
       if (profile.role === 'doctor') {
-        const [patients, conversations, tasksResult] = await Promise.all([
+        const [patients, conversations, tasksResult, turnsResult] = await Promise.all([
           this.clinicalPortal.loadDoctorPatients(profile.id),
           this.clinicalPortal.loadDoctorConversations(profile.id),
           this.clinicalPortal.loadDashboardTasks().then(
+            (value) => ({ status: 'fulfilled' as const, value }),
+            (reason: unknown) => ({ status: 'rejected' as const, reason }),
+          ),
+          this.clinicalPortal.loadClinicTurns().then(
             (value) => ({ status: 'fulfilled' as const, value }),
             (reason: unknown) => ({ status: 'rejected' as const, reason }),
           ),
@@ -1177,6 +1188,18 @@ export class App implements OnInit, OnDestroy {
         this.portalPatients = patients;
         const assignedUids = new Set(patients.map((patient) => patient.id));
         this.portalConversations = conversations;
+        if (turnsResult.status === 'fulfilled') {
+          this.clinicTurns = turnsResult.value.filter((turn) => assignedUids.has(turn.patient_uid));
+        } else {
+          this.clinicTurns = [];
+          syncWarnings.push(
+            this.userFacingError(
+              'No se pudieron cargar los turnos del médico.',
+              turnsResult.reason,
+              'No se pudieron cargar los turnos de tus pacientes.',
+            ),
+          );
+        }
         this.reportStatsAvailable = false;
         if (tasksResult.status === 'fulfilled') {
           this.tareas = tasksResult.value.map((task) => this.toTarea(task));
@@ -1190,9 +1213,10 @@ export class App implements OnInit, OnDestroy {
           );
           syncWarnings.push(`Tareas: ${this.tasksError}`);
         }
-        const [reportsResult, measurementsResult] = await Promise.allSettled([
+        const [reportsResult, measurementsResult, healthConnectResult] = await Promise.allSettled([
           this.clinicalPortal.loadAssignedReports(),
           this.clinicalPortal.loadPatientMeasurements(patients.map((patient) => patient.id)),
+          this.clinicalPortal.loadPatientHealthConnectRecords(patients.map((patient) => patient.id)),
         ]);
         if (reportsResult.status === 'fulfilled') {
           this.portalReports = reportsResult.value.filter((report) => {
@@ -1219,6 +1243,18 @@ export class App implements OnInit, OnDestroy {
               'No se pudieron cargar las mediciones de los pacientes asignados.',
               measurementsResult.reason,
               'No se pudieron cargar las mediciones clínicas.',
+            ),
+          );
+        }
+        if (healthConnectResult.status === 'fulfilled') {
+          this.portalHealthConnectRecords = healthConnectResult.value;
+        } else {
+          this.portalHealthConnectRecords = [];
+          syncWarnings.push(
+            this.userFacingError(
+              'No se pudieron cargar los datos de Health Connect.',
+              healthConnectResult.reason,
+              'No se pudieron cargar los datos sincronizados de Samsung Health.',
             ),
           );
         }
@@ -1270,6 +1306,7 @@ export class App implements OnInit, OnDestroy {
             ),
           );
         }
+        this.portalHealthConnectRecords = [];
         if (this.selectedConversationId && !conversations.some(
           (conversation) => conversation.id === this.selectedConversationId,
         )) {
@@ -1297,12 +1334,16 @@ export class App implements OnInit, OnDestroy {
         const patientUids = adminData.profiles
           .filter((user) => user.role === 'patient')
           .map((patient) => patient.id);
-        const measurementsResult = await this.clinicalPortal
-          .loadPatientMeasurements(patientUids)
-          .then(
+        const [measurementsResult, healthConnectResult] = await Promise.all([
+          this.clinicalPortal.loadPatientMeasurements(patientUids).then(
             (value) => ({ status: 'fulfilled' as const, value }),
             (reason: unknown) => ({ status: 'rejected' as const, reason }),
-          );
+          ),
+          this.clinicalPortal.loadPatientHealthConnectRecords().then(
+            (value) => ({ status: 'fulfilled' as const, value }),
+            (reason: unknown) => ({ status: 'rejected' as const, reason }),
+          ),
+        ]);
         if (measurementsResult.status === 'fulfilled') {
           this.portalMeasurements = measurementsResult.value;
         } else {
@@ -1312,6 +1353,18 @@ export class App implements OnInit, OnDestroy {
               'No se pudieron cargar las mediciones para administración.',
               measurementsResult.reason,
               'No se pudieron cargar los signos vitales de pacientes.',
+            ),
+          );
+        }
+        if (healthConnectResult.status === 'fulfilled') {
+          this.portalHealthConnectRecords = healthConnectResult.value;
+        } else {
+          this.portalHealthConnectRecords = [];
+          syncWarnings.push(
+            this.userFacingError(
+              'No se pudieron cargar los datos de Health Connect para administración.',
+              healthConnectResult.reason,
+              'No se pudieron cargar los datos sincronizados de Samsung Health.',
             ),
           );
         }
@@ -1396,9 +1449,12 @@ export class App implements OnInit, OnDestroy {
         : profile.role === 'doctor'
           ? this.portalPatients.map((patient) => patient.id)
           : [profile.id];
-      const [reportsResult, measurementsResult] = await Promise.allSettled([
+      const [reportsResult, measurementsResult, healthConnectResult] = await Promise.allSettled([
         this.clinicalPortal.loadAssignedReports(),
         this.clinicalPortal.loadPatientMeasurements(patientUids),
+        this.clinicalPortal.loadPatientHealthConnectRecords(
+          profile.role === 'admin' ? undefined : patientUids,
+        ),
       ]);
       const allowedPatientUids = new Set(patientUids);
       if (reportsResult.status === 'fulfilled') {
@@ -1422,6 +1478,28 @@ export class App implements OnInit, OnDestroy {
           measurementsResult.reason,
           'No se pudieron actualizar los signos vitales. Inténtalo de nuevo más tarde.',
         );
+      }
+      if (healthConnectResult.status === 'fulfilled') {
+        this.portalHealthConnectRecords = healthConnectResult.value;
+      } else if (!this.portalError) {
+        this.portalError = this.userFacingError(
+          'No se pudieron actualizar los datos de Health Connect.',
+          healthConnectResult.reason,
+          'No se pudieron actualizar los datos de Samsung Health. Inténtalo de nuevo más tarde.',
+        );
+      }
+      if (profile.role === 'doctor') {
+        try {
+          this.clinicTurns = await this.clinicalPortal.loadClinicTurns(patientUids);
+        } catch (error) {
+          if (!this.portalError) {
+            this.portalError = this.userFacingError(
+              'No se pudieron actualizar los turnos del médico.',
+              error,
+              'No se pudieron actualizar los turnos. Inténtalo de nuevo más tarde.',
+            );
+          }
+        }
       }
     } finally {
       this.refreshingClinicalRecords = false;
@@ -1950,6 +2028,15 @@ export class App implements OnInit, OnDestroy {
   }
 
   async createPortalTurn(): Promise<void> {
+    const profile = this.portalProfile;
+    if (!profile || (profile.role !== 'admin' && profile.role !== 'doctor')) return;
+    if (
+      profile.role === 'doctor' &&
+      !this.portalPatients.some((patient) => patient.id === this.turnDraft.patient_uid)
+    ) {
+      this.portalError = 'Solo puedes crear turnos para pacientes asignados.';
+      return;
+    }
     this.portalBusy = true;
     this.portalError = '';
     this.portalStatus = '';
@@ -1977,7 +2064,17 @@ export class App implements OnInit, OnDestroy {
   }
 
   async changePortalTurn(turn: ClinicTurn, status: ClinicTurn['status']): Promise<void> {
+    const profile = this.portalProfile;
+    if (!profile || (profile.role !== 'admin' && profile.role !== 'doctor')) return;
+    if (
+      profile.role === 'doctor' &&
+      !this.portalPatients.some((patient) => patient.id === turn.patient_uid)
+    ) {
+      this.portalError = 'Solo puedes modificar turnos de pacientes asignados.';
+      return;
+    }
     this.portalBusy = true;
+    this.portalError = '';
     try {
       await this.clinicalPortal.updateClinicTurn(turn.id, {
         status,
@@ -2003,13 +2100,27 @@ export class App implements OnInit, OnDestroy {
   }
 
   reportPatientName(report: Record<string, unknown>): string {
+    const patient = this.reportPatientProfile(report);
+    return patient ? `${patient.first_name} ${patient.last_name}` : 'Paciente';
+  }
+
+  reportPatientBirthDate(report: Record<string, unknown>): string {
+    const dateOfBirth = this.reportPatientProfile(report)?.date_of_birth;
+    return dateOfBirth ? this.formatPortalDate(dateOfBirth) : 'No registrada';
+  }
+
+  reportPatientChronicConditions(report: Record<string, unknown>): string {
+    const conditions = this.reportPatientProfile(report)?.chronic_conditions;
+    return conditions?.length ? conditions.join(', ') : 'Sin antecedentes registrados';
+  }
+
+  private reportPatientProfile(report: Record<string, unknown>): PortalProfile | undefined {
     const ownerUid = report['ownerUid'];
-    if (typeof ownerUid !== 'string') return 'Paciente';
+    if (typeof ownerUid !== 'string') return undefined;
     const profiles = this.portalProfile?.role === 'admin'
       ? this.portalUsers
       : this.portalPatients;
-    const patient = profiles.find((profile) => profile.id === ownerUid);
-    return patient ? `${patient.first_name} ${patient.last_name}` : 'Paciente';
+    return profiles.find((profile) => profile.id === ownerUid);
   }
 
   measurementPatientName(measurement: Record<string, unknown>): string {
@@ -2036,8 +2147,93 @@ export class App implements OnInit, OnDestroy {
       .filter((measurement) =>
         typeof measurement['owner_uid'] === 'string' &&
         patientUids.has(measurement['owner_uid']),
-      )
-      .slice(0, 20);
+      );
+  }
+
+  get visibleClinicalHealthConnectRecords(): Record<string, unknown>[] {
+    const profile = this.portalProfile;
+    const patientUids = profile?.role === 'admin'
+      ? new Set(this.portalUsers.filter((user) => user.role === 'patient').map((user) => user.id))
+      : profile?.role === 'doctor'
+        ? new Set(this.portalPatients.map((patient) => patient.id))
+        : new Set(profile ? [profile.id] : []);
+    return this.portalHealthConnectRecords.filter((record) =>
+      typeof record['owner_uid'] === 'string' &&
+      patientUids.has(record['owner_uid']),
+    );
+  }
+
+  healthConnectRecordValue(record: Record<string, unknown>): string {
+    const value = Number(record['value']);
+    if (!Number.isFinite(value)) return 'Valor no disponible';
+    const dataType = typeof record['data_type'] === 'string' ? record['data_type'] : '';
+    if (dataType.startsWith('SLEEP_')) {
+      const minutes = Math.max(0, Math.round(value));
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = minutes % 60;
+      return hours ? `${hours} h ${remainingMinutes} min` : `${remainingMinutes} min`;
+    }
+
+    const unitLabels: Record<string, string> = {
+      HEART_RATE: 'lpm',
+      RESTING_HEART_RATE: 'lpm',
+      BLOOD_OXYGEN: '%',
+      BODY_TEMPERATURE: '°C',
+      BLOOD_PRESSURE_SYSTOLIC: 'mmHg',
+      BLOOD_PRESSURE_DIASTOLIC: 'mmHg',
+      BODY_FAT_PERCENTAGE: '%',
+      LEAN_BODY_MASS: 'kg',
+      BODY_MASS_INDEX: 'kg/m²',
+      BODY_WATER_MASS: 'kg',
+      WEIGHT: 'kg',
+      HEIGHT: 'm',
+    };
+    const unit = unitLabels[dataType] ?? record['unit'];
+    const formattedValue = Number.isInteger(value) ? String(value) : value.toFixed(1);
+    return `${formattedValue}${unit ? ` ${unit}` : ''}`;
+  }
+
+  healthConnectRecordSource(record: Record<string, unknown>): string {
+    const sourceName = record['source_name'];
+    const sourceId = record['source_id'];
+    if (typeof sourceName === 'string' && sourceName.trim()) return sourceName;
+    if (typeof sourceId === 'string' && sourceId.trim()) return sourceId;
+    return 'Health Connect';
+  }
+
+  measurementSensorReadings(measurement: Record<string, unknown>): string[] {
+    const readings = measurement['sensor_readings'];
+    if (!this.isObjectRecord(readings)) return [];
+    return Object.values(readings).flatMap((reading) => {
+      if (!this.isObjectRecord(reading)) return [];
+      const label = reading['label'];
+      const unit = reading['unit'];
+      const values = reading['values'];
+      if (
+        typeof label !== 'string' ||
+        typeof unit !== 'string' ||
+        !Array.isArray(values) ||
+        values.some((value) => typeof value !== 'number' || !Number.isFinite(value))
+      ) return [];
+      return [`${label}: ${values.join(', ')} ${unit}`];
+    });
+  }
+
+  private isObjectRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+  }
+
+  get patientsForTurnManagement(): PortalProfile[] {
+    return this.portalProfile?.role === 'doctor'
+      ? this.portalPatients.filter((patient) => patient.is_active)
+      : this.patientsForAssignment;
+  }
+
+  clinicTurnPatientName(turn: ClinicTurn): string {
+    const patient = this.patientsForTurnManagement.find(
+      (item) => item.id === turn.patient_uid,
+    );
+    return patient ? `${patient.first_name} ${patient.last_name}` : 'Paciente asignado';
   }
 
   async openReportChat(report: Record<string, unknown>): Promise<void> {
