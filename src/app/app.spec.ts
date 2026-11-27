@@ -387,6 +387,13 @@ describe('App', () => {
       is_active: true,
       date_of_birth: '1990-01-02',
       chronic_conditions: ['Hipertensión arterial'],
+    }, {
+      id: 'patient-user-2',
+      email: 'patient2@example.com',
+      first_name: 'Otra',
+      last_name: 'Paciente',
+      role: 'patient',
+      is_active: true,
     }];
     app.portalReports = [{
       id: 'report-1',
@@ -403,7 +410,7 @@ describe('App', () => {
       device_name: 'Galaxy Watch',
       heart_rate_bpm: 82,
       sensor_readings: {
-        ecg: { label: 'ECG', unit: 'mV', values: [0.2, 0.4] },
+        accelerometer: { label: 'Acelerómetro', unit: 'm/s²', values: [0.2, 0.4] },
       },
     }];
     app.portalHealthConnectRecords = [{
@@ -417,6 +424,28 @@ describe('App', () => {
       ended_at: '2026-11-27T11:00:00Z',
       source_name: 'Samsung Health',
       source_id: 'com.sec.android.app.shealth',
+    }, {
+      id: 'health-record-2',
+      owner_uid: 'patient-user-2',
+      data_type: 'HEART_RATE',
+      label: 'Frecuencia cardiaca',
+      value: 72,
+      unit: 'BPM',
+      recorded_at: '2026-11-27T10:00:00Z',
+      ended_at: '2026-11-27T10:00:00Z',
+      source_name: 'Samsung Health',
+      source_id: 'com.sec.android.app.shealth',
+    }, {
+      id: 'other-health-connect-record',
+      owner_uid: 'patient-user',
+      data_type: 'STEPS',
+      label: 'Pasos',
+      value: 2500,
+      unit: 'COUNT',
+      recorded_at: '2026-11-27T09:00:00Z',
+      ended_at: '2026-11-27T09:00:00Z',
+      source_name: 'Google Fit',
+      source_id: 'com.google.android.apps.fitness',
     }];
     app.clinicTurns = [{
       id: 'turn-1',
@@ -433,11 +462,90 @@ describe('App', () => {
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.textContent).toContain('Antecedentes registrados: Hipertensión arterial');
-    expect(compiled.textContent).toContain('ECG: 0.2, 0.4 mV');
+    expect(compiled.textContent).not.toContain('Signos vitales recientes de la app móvil');
+    expect(compiled.textContent).not.toContain('Acelerómetro:');
     expect(compiled.textContent).toContain('98 %');
     expect(compiled.textContent).toContain('Samsung Health');
+    expect(compiled.textContent).not.toContain('Google Fit');
+    expect(compiled.querySelectorAll('.clinical-health-connect-patient-group').length).toBe(2);
+    expect(compiled.querySelector('#health-connect-search')).toBeTruthy();
+    expect(compiled.querySelector('#health-connect-patient-filter')).toBeTruthy();
+    expect(compiled.querySelector('#health-connect-type-filter')).toBeTruthy();
+    expect(compiled.querySelector('#health-connect-date-filter')).toBeTruthy();
     expect(compiled.querySelector('#doctor-turn-patient')).toBeTruthy();
     expect(compiled.textContent).toContain('T-000001 · Paciente Prueba');
+  });
+
+  it('filters Health Connect records by patient, data type, search, and date range', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    window.history.replaceState({}, '', '/reportes-clinicos');
+    spyOn(app, 'initializePortal').and.resolveTo();
+    app.portalReady = true;
+    app.portalProfile = {
+      id: 'doctor-user',
+      email: 'doctor@example.com',
+      first_name: 'Doctora',
+      last_name: 'Prueba',
+      role: 'doctor',
+      is_active: true,
+    };
+    app.portalPatients = [{
+      id: 'patient-jose',
+      email: 'jose@example.com',
+      first_name: 'José',
+      last_name: 'Ávila',
+      role: 'patient',
+      is_active: true,
+    }, {
+      id: 'patient-ana',
+      email: 'ana@example.com',
+      first_name: 'Ana',
+      last_name: 'Ruiz',
+      role: 'patient',
+      is_active: true,
+    }];
+    app.portalHealthConnectRecords = [{
+      id: 'recent-heart-rate',
+      owner_uid: 'patient-jose',
+      data_type: 'HEART_RATE',
+      label: 'Frecuencia cardiaca',
+      value: 72,
+      unit: 'BPM',
+      recorded_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+      source_name: 'Samsung Health',
+      source_id: 'com.sec.android.app.shealth',
+    }, {
+      id: 'older-oxygen',
+      owner_uid: 'patient-ana',
+      data_type: 'BLOOD_OXYGEN',
+      label: 'Oxígeno en sangre',
+      value: 98,
+      unit: 'PERCENT',
+      recorded_at: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString(),
+      source_name: 'Samsung Health',
+      source_id: 'com.sec.android.app.shealth',
+    }];
+    fixture.detectChanges();
+
+    app.healthConnectSearchTerm = 'jose';
+    expect(app.groupedClinicalHealthConnectRecords.map((group) => group.patientUid))
+      .toEqual(['patient-jose']);
+
+    app.healthConnectSearchTerm = '';
+    app.healthConnectPatientFilter = 'patient-ana';
+    expect(app.filteredClinicalHealthConnectRecords.map((record) => record['id']))
+      .toEqual(['older-oxygen']);
+
+    app.healthConnectPatientFilter = '';
+    app.healthConnectDataTypeFilter = 'BLOOD_OXYGEN';
+    expect(app.filteredClinicalHealthConnectRecords.map((record) => record['id']))
+      .toEqual(['older-oxygen']);
+
+    app.healthConnectDataTypeFilter = '';
+    app.healthConnectDateFilter = '30';
+    expect(app.filteredClinicalHealthConnectRecords.map((record) => record['id']))
+      .toEqual(['recent-heart-rate']);
   });
 
   it('requires reading the terms before allowing registration acceptance', () => {
