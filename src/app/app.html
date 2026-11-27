@@ -859,42 +859,77 @@
             </article>
           }
           <section class="clinical-vitals-section">
-            <h4>Signos vitales recientes de la app móvil</h4>
-            <p class="portal-muted">Las mediciones se muestran vinculadas al paciente asignado y a su fecha de captura.</p>
-            @if (visibleClinicalMeasurements.length === 0) {
-              <p>No hay mediciones disponibles para los pacientes autorizados.</p>
-            }
-            @for (measurement of visibleClinicalMeasurements; track measurement['id']) {
-              <article class="clinical-vitals-row">
-                <strong>{{ measurementPatientName(measurement) }}</strong>
-                <span>{{ formatPortalDate(measurement['reading_at']) }}</span>
-                <span>FC {{ measurement['heart_rate_bpm'] ?? '—' }} bpm</span>
-                <span>SpO₂ {{ measurement['oxygen_saturation_percent'] ?? '—' }}%</span>
-                @if (measurement['body_temperature_celsius'] !== null && measurement['body_temperature_celsius'] !== undefined) {
-                  <span>Temp. {{ measurement['body_temperature_celsius'] }} °C</span>
-                }
-                <span>{{ measurement['device_name'] ?? 'App BioMedica' }}</span>
-                @for (reading of measurementSensorReadings(measurement); track reading) {
-                  <span>{{ reading }}</span>
-                }
-              </article>
-            }
-          </section>
-          <section class="clinical-vitals-section">
-            <h4>Datos sincronizados de Samsung Health / Health Connect</h4>
-            <p class="portal-muted">Se muestran los registros importados y permitidos para cada paciente, con su fecha y fuente real.</p>
+            <h4>Mediciones de Samsung Health vía Health Connect</h4>
+            <p class="portal-muted">Solo se muestran datos sincronizados desde Health Connect, separados por paciente.</p>
+            <div class="clinical-health-connect-filters">
+              <label>
+                Buscar
+                <input
+                  id="health-connect-search"
+                  type="search"
+                  [(ngModel)]="healthConnectSearchTerm"
+                  placeholder="Paciente, medición o fuente"
+                >
+              </label>
+              <label>
+                Paciente
+                <select id="health-connect-patient-filter" [(ngModel)]="healthConnectPatientFilter">
+                  <option value="">Todos los pacientes</option>
+                  @for (patient of healthConnectPatientOptions; track patient.id) {
+                    <option [value]="patient.id">{{ patient.first_name }} {{ patient.last_name }}</option>
+                  }
+                </select>
+              </label>
+              <label>
+                Tipo de medición
+                <select id="health-connect-type-filter" [(ngModel)]="healthConnectDataTypeFilter">
+                  <option value="">Todos los tipos</option>
+                  @for (dataType of healthConnectDataTypes; track dataType) {
+                    <option [value]="dataType">{{ healthConnectRecordTypeLabel(dataType) }}</option>
+                  }
+                </select>
+              </label>
+              <label>
+                Periodo
+                <select id="health-connect-date-filter" [(ngModel)]="healthConnectDateFilter">
+                  <option value="all">Todo el historial</option>
+                  <option value="7">Últimos 7 días</option>
+                  <option value="30">Últimos 30 días</option>
+                  <option value="90">Últimos 90 días</option>
+                </select>
+              </label>
+              <button class="btn-secondary" type="button" (click)="clearHealthConnectFilters()">
+                Limpiar filtros
+              </button>
+            </div>
+            <p class="portal-muted clinical-health-connect-count">
+              {{ filteredClinicalHealthConnectRecords.length }} registros en
+              {{ groupedClinicalHealthConnectRecords.length }} pacientes
+            </p>
             @if (visibleClinicalHealthConnectRecords.length === 0) {
-              <p>No hay registros sincronizados disponibles. El paciente debe sincronizar Health Connect desde la app móvil y permitir compartir los datos en Samsung Health.</p>
+              <p>No hay mediciones de Samsung Health sincronizadas para los pacientes autorizados.</p>
             }
-            <div class="clinical-health-record-list">
-              @for (record of visibleClinicalHealthConnectRecords; track record['id']) {
-                <article class="clinical-health-record-row">
-                  <strong>{{ measurementPatientName(record) }}</strong>
-                  <span>{{ record['label'] ?? record['data_type'] ?? 'Medición de salud' }}</span>
-                  <strong>{{ healthConnectRecordValue(record) }}</strong>
-                  <span>Registrado: {{ formatPortalDate(record['recorded_at']) }}</span>
-                  <span>Origen: {{ healthConnectRecordSource(record) }}</span>
-                </article>
+            @else if (filteredClinicalHealthConnectRecords.length === 0) {
+              <p>No hay mediciones que coincidan con la búsqueda y los filtros.</p>
+            }
+            <div class="clinical-health-connect-groups">
+              @for (group of groupedClinicalHealthConnectRecords; track group.patientUid) {
+                <section class="clinical-health-connect-patient-group">
+                  <header>
+                    <h5>{{ group.patientName }}</h5>
+                    <span>{{ group.records.length }} mediciones</span>
+                  </header>
+                  <div class="clinical-health-record-list">
+                    @for (record of group.records; track record['id']) {
+                      <article class="clinical-health-record-row">
+                        <span>{{ healthConnectRecordLabel(record) }}</span>
+                        <strong>{{ healthConnectRecordValue(record) }}</strong>
+                        <span>Registrado: {{ formatPortalDate(record['recorded_at']) }}</span>
+                        <span>Origen: {{ healthConnectRecordSource(record) }}</span>
+                      </article>
+                    }
+                  </div>
+                </section>
               }
             </div>
           </section>

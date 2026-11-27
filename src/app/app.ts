@@ -47,6 +47,7 @@ interface NavigationItem {
 type RolAdministrador = 'superadmin' | 'operador' | 'visor';
 type EstadoUsuario = 'activo' | 'bloqueado';
 type EstadoTurno = 'en_espera' | 'en_atencion' | 'finalizado';
+type HealthConnectDateFilter = 'all' | '7' | '30' | '90';
 
 export interface Tarea {
   id: string;
@@ -256,6 +257,10 @@ export class App implements OnInit, OnDestroy {
   reportObservationsDraft: Record<string, string> = {};
   portalMeasurements: Record<string, unknown>[] = [];
   portalHealthConnectRecords: Record<string, unknown>[] = [];
+  healthConnectSearchTerm = '';
+  healthConnectPatientFilter = '';
+  healthConnectDataTypeFilter = '';
+  healthConnectDateFilter: HealthConnectDateFilter = 'all';
   incomingClinicalCall: ClinicalVideoCall | null = null;
   activeClinicalCall: ClinicalVideoCall | null = null;
   activeClinicalCallReportId = '';
@@ -1090,6 +1095,7 @@ export class App implements OnInit, OnDestroy {
       this.portalReports = [];
       this.portalMeasurements = [];
       this.portalHealthConnectRecords = [];
+      this.clearHealthConnectFilters();
       this.portalConversations = [];
       this.portalMessages = [];
       this.portalUsers = [];
@@ -2159,8 +2165,157 @@ export class App implements OnInit, OnDestroy {
         : new Set(profile ? [profile.id] : []);
     return this.portalHealthConnectRecords.filter((record) =>
       typeof record['owner_uid'] === 'string' &&
-      patientUids.has(record['owner_uid']),
+      patientUids.has(record['owner_uid']) &&
+      this.isSamsungHealthConnectRecord(record),
     );
+  }
+
+  get healthConnectPatientOptions(): PortalProfile[] {
+    const profile = this.portalProfile;
+    const patients = profile?.role === 'admin'
+      ? this.portalUsers.filter((user) => user.role === 'patient')
+      : profile?.role === 'doctor'
+        ? this.portalPatients
+        : profile?.role === 'patient'
+          ? [profile]
+          : [];
+    return [...patients].sort((a, b) =>
+      `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`, 'es-MX'),
+    );
+  }
+
+  get healthConnectDataTypes(): string[] {
+    return [...new Set(
+      this.visibleClinicalHealthConnectRecords
+        .map((record) => record['data_type'])
+        .filter((dataType): dataType is string =>
+          typeof dataType === 'string' && dataType.trim().length > 0,
+        ),
+    )].sort((a, b) =>
+      this.healthConnectRecordTypeLabel(a).localeCompare(
+        this.healthConnectRecordTypeLabel(b),
+        'es-MX',
+      ),
+    );
+  }
+
+  get filteredClinicalHealthConnectRecords(): Record<string, unknown>[] {
+    const query = this.normalizeHealthConnectSearchText(this.healthConnectSearchTerm);
+    const rangeDays = this.healthConnectDateFilter === 'all'
+      ? null
+      : Number(this.healthConnectDateFilter);
+    const cutoff = rangeDays === null ? null : Date.now() - rangeDays * 24 * 60 * 60 * 1000;
+
+    return this.visibleClinicalHealthConnectRecords
+      .filter((record) => {
+        const ownerUid = record['owner_uid'];
+        if (typeof ownerUid !== 'string') return false;
+        if (this.healthConnectPatientFilter && ownerUid !== this.healthConnectPatientFilter) {
+          return false;
+        }
+        if (
+          this.healthConnectDataTypeFilter &&
+          record['data_type'] !== this.healthConnectDataTypeFilter
+        ) return false;
+
+        if (cutoff !== null) {
+          const recordedAt = Date.parse(String(record['recorded_at'] ?? ''));
+          if (!Number.isFinite(recordedAt) || recordedAt < cutoff) return false;
+        }
+
+        if (!query) return true;
+        const patient = this.healthConnectPatientOptions.find((item) => item.id === ownerUid);
+        const searchText = [
+          patient?.first_name,
+          patient?.last_name,
+          patient?.email,
+          record['label'],
+          record['data_type'],
+          record['source_name'],
+          record['source_id'],
+          this.healthConnectRecordValue(record),
+        ].map((value) => this.normalizeHealthConnectSearchText(value)).join(' ');
+        return searchText.includes(query);
+      })
+      .sort((a, b) =>
+        Date.parse(String(b['recorded_at'] ?? '')) -
+        Date.parse(String(a['recorded_at'] ?? '')),
+      );
+  }
+
+  get groupedClinicalHealthConnectRecords(): {
+    patientUid: string;
+    patientName: string;
+    records: Record<string, unknown>[];
+  }[] {
+    const groups = new Map<string, {
+      patientUid: string;
+      patientName: string;
+      records: Record<string, unknown>[];
+    }>();
+    for (const record of this.filteredClinicalHealthConnectRecords) {
+      const ownerUid = record['owner_uid'];
+      if (typeof ownerUid !== 'string') continue;
+      let group = groups.get(ownerUid);
+      if (!group) {
+        group = {
+          patientUid: ownerUid,
+          patientName: this.measurementPatientName(record),
+          records: [],
+        };
+        groups.set(ownerUid, group);
+      }
+      group.records.push(record);
+    }
+    return [...groups.values()].sort((a, b) =>
+      a.patientName.localeCompare(b.patientName, 'es-MX'),
+    );
+  }
+
+  healthConnectRecordTypeLabel(dataType: string): string {
+    const labels: Record<string, string> = {
+      HEART_RATE: 'Frecuencia cardiaca',
+      RESTING_HEART_RATE: 'Frecuencia cardiaca en reposo',
+      BLOOD_OXYGEN: 'Oxígeno en sangre (SpO₂)',
+      BLOOD_PRESSURE_SYSTOLIC: 'Presión arterial sistólica',
+      BLOOD_PRESSURE_DIASTOLIC: 'Presión arterial diastólica',
+      BODY_TEMPERATURE: 'Temperatura corporal',
+      WEIGHT: 'Peso',
+      HEIGHT: 'Estatura',
+      STEPS: 'Pasos',
+      SLEEP_SESSION: 'Sueño',
+    };
+    return labels[dataType] ?? dataType.replace(/_/g, ' ');
+  }
+
+  healthConnectRecordLabel(record: Record<string, unknown>): string {
+    const label = record['label'];
+    if (typeof label === 'string' && label.trim()) return label;
+    const dataType = record['data_type'];
+    return typeof dataType === 'string' && dataType
+      ? this.healthConnectRecordTypeLabel(dataType)
+      : 'Medición de salud';
+  }
+
+  clearHealthConnectFilters(): void {
+    this.healthConnectSearchTerm = '';
+    this.healthConnectPatientFilter = '';
+    this.healthConnectDataTypeFilter = '';
+    this.healthConnectDateFilter = 'all';
+  }
+
+  private normalizeHealthConnectSearchText(value: unknown): string {
+    if (typeof value !== 'string' && typeof value !== 'number') return '';
+    return String(value)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLocaleLowerCase('es-MX');
+  }
+
+  private isSamsungHealthConnectRecord(record: Record<string, unknown>): boolean {
+    const source = `${record['source_name'] ?? ''} ${record['source_id'] ?? ''}`
+      .toLocaleLowerCase('en-US');
+    return source.includes('samsung') || source.includes('com.sec.android.app.shealth');
   }
 
   healthConnectRecordValue(record: Record<string, unknown>): string {
