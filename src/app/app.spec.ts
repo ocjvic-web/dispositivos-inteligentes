@@ -96,6 +96,36 @@ describe('App', () => {
     expect(app.navigationItems.map((item) => item.label)).toContain('Reportes clínicos');
   });
 
+  it('keeps patient vitals and clinical alerts off the public turns screen', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.portalProfile = {
+      id: 'admin-user',
+      email: 'admin@example.com',
+      first_name: 'Admin',
+      last_name: 'Prueba',
+      role: 'admin',
+      is_active: true,
+    };
+    app.portalMeasurements = [{
+      id: 'measurement-1',
+      owner_uid: 'patient-user',
+      reading_at: '2026-11-27T12:00:00Z',
+      heart_rate_bpm: 75,
+      oxygen_saturation_percent: 90,
+      body_temperature_celsius: 36.5,
+    }];
+    app.navegar('tvwall');
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Siguientes turnos');
+    expect(text).not.toContain('Signos vitales de la app');
+    expect(text).not.toContain('Seguridad clínica');
+    expect(text).not.toContain('SpO₂ por debajo del umbral');
+    expect(fixture.nativeElement.querySelector('.tv-alert-list')).toBeNull();
+  });
+
   it('renders the task board with persisted task states and no demo widget', () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;

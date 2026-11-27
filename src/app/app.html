@@ -486,34 +486,6 @@
         </div>
       </article>
 
-      <article class="tvwall-card">
-        <div class="tvwall-card-head">
-          <span class="section-tag">Signos vitales de la app</span>
-          <span class="tv-screen-badge">Live</span>
-        </div>
-        <div class="tv-vitals-grid">
-          <div><span>Frecuencia</span><strong>{{ latestClinicalMeasurement?.['heart_rate_bpm'] ?? '—' }} bpm</strong></div>
-          <div><span>SpO₂</span><strong>{{ latestClinicalMeasurement?.['oxygen_saturation_percent'] ?? '—' }}%</strong></div>
-          <div><span>Temperatura</span><strong>{{ latestClinicalMeasurement?.['body_temperature_celsius'] ?? '—' }}°C</strong></div>
-          <div><span>Paciente</span><strong>{{ latestClinicalPatientName }}</strong></div>
-        </div>
-        <p class="tvwall-source">
-          {{ latestClinicalMeasurement ? formatPortalDate(latestClinicalMeasurement['reading_at']) : 'Sin mediciones registradas' }}
-        </p>
-      </article>
-
-      <article class="tvwall-card">
-        <div class="tvwall-card-head">
-          <span class="section-tag">Alertas</span>
-          <span class="tv-screen-badge">Seguridad clínica</span>
-        </div>
-        <div class="tv-alert-list">
-          @for (alerta of alertasCriticas; track alerta) {
-            <div class="tv-alert-item">{{ alerta }}</div>
-          }
-        </div>
-      </article>
-
       <article class="tvwall-card tvwall-queue-card">
         <div class="tvwall-card-head">
           <span class="section-tag">Siguientes turnos</span>

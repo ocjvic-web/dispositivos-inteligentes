@@ -1,0 +1,64 @@
+name: BioMedica SmartTV portal CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-test:
+    name: Build, Playwright, and pytest API matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TEST_RESULTS_DIR: artifacts/test-results
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Python test dependencies
+        run: python -m pip install -r requirements-test.txt
+
+      - name: Install Playwright Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Build Angular production website
+        run: npm run build
+
+      - name: Run Angular unit tests
+        run: npm test -- --watch=false --browsers=ChromeHeadless
+
+      - name: Create test report directory
+        run: mkdir -p artifacts/test-results
+
+      - name: Run Playwright UI and pytest API checks
+        run: python -m pytest --junitxml=artifacts/test-results/junit.xml
+
+      - name: Upload UI/API timing and status reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: biomedica-site-test-results
+          path: artifacts/test-results/
+          if-no-files-found: warn
