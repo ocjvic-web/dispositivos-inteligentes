@@ -2,7 +2,7 @@ services:
   - type: web
     name: biomedica-smarttv
     runtime: node
-    buildCommand: npm ci && python3 -m venv .venv-test && .venv-test/bin/python -m pip install --no-cache-dir -r requirements-test.txt && .venv-test/bin/python -m playwright install --with-deps chromium && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm run serve:prod
     autoDeployTrigger: checksPass
     plan: free
