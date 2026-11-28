@@ -33,6 +33,22 @@ describe('App', () => {
     expect(compiled.querySelector('h1')?.textContent).toContain('Centro de Innovación Biomédica');
   });
 
+  it('offers the Android app download and explains Health Connect setup on home', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    const downloads = Array.from(
+      compiled.querySelectorAll<HTMLAnchorElement>(
+        'a[href="/downloads/smartwatch_secure_auth_app.apk"]',
+      ),
+    );
+
+    expect(downloads.length).toBeGreaterThan(0);
+    expect(downloads.every((link) => link.hasAttribute('download'))).toBeTrue();
+    expect(compiled.textContent).toContain('Samsung Health + Health Connect');
+    expect(compiled.textContent).toContain('ECG y forma de onda no se importan');
+  });
+
   it('shows only public navigation and account actions to visitors', () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
@@ -94,6 +110,69 @@ describe('App', () => {
 
     app.portalProfile.role = 'admin';
     expect(app.navigationItems.map((item) => item.label)).toContain('Reportes clínicos');
+  });
+
+  it('shows the temporary test runner only to administrators', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    const compiled = fixture.nativeElement as HTMLElement;
+    fixture.detectChanges();
+
+    expect(compiled.querySelector('.footer-test-button')).toBeNull();
+    for (const role of ['patient', 'doctor'] as const) {
+      app.portalProfile = {
+        id: `${role}-user`,
+        email: `${role}@example.com`,
+        first_name: role,
+        last_name: 'Prueba',
+        role,
+        is_active: true,
+      };
+      fixture.detectChanges();
+      expect(compiled.querySelector('.footer-test-button')).toBeNull();
+    }
+
+    app.portalProfile = {
+      id: 'admin-user',
+      email: 'admin@example.com',
+      first_name: 'Admin',
+      last_name: 'Prueba',
+      role: 'admin',
+      is_active: true,
+    };
+    fixture.detectChanges();
+    expect(compiled.querySelector('.footer-test-button')?.textContent)
+      .toContain('Botón temporal para pruebas');
+  });
+
+  it('keeps patient vitals and clinical alerts off the public turns screen', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    app.portalProfile = {
+      id: 'admin-user',
+      email: 'admin@example.com',
+      first_name: 'Admin',
+      last_name: 'Prueba',
+      role: 'admin',
+      is_active: true,
+    };
+    app.portalMeasurements = [{
+      id: 'measurement-1',
+      owner_uid: 'patient-user',
+      reading_at: '2026-11-27T12:00:00Z',
+      heart_rate_bpm: 75,
+      oxygen_saturation_percent: 90,
+      body_temperature_celsius: 36.5,
+    }];
+    app.navegar('tvwall');
+    fixture.detectChanges();
+
+    const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(text).toContain('Siguientes turnos');
+    expect(text).not.toContain('Signos vitales de la app');
+    expect(text).not.toContain('Seguridad clínica');
+    expect(text).not.toContain('SpO₂ por debajo del umbral');
+    expect(fixture.nativeElement.querySelector('.tv-alert-list')).toBeNull();
   });
 
   it('renders the task board with persisted task states and no demo widget', () => {

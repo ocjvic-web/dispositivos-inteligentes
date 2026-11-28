@@ -87,6 +87,24 @@ interface SesionAdministrador {
   expiresAt: string;
 }
 
+interface TemporaryTestRunStatus {
+  requestId: string;
+  status: 'in_progress' | 'completed';
+  conclusion?: string | null;
+  step?: string;
+  message?: string;
+  error?: string | null;
+  reportAvailable: boolean;
+  steps: Array<{
+    name: string;
+    exitCode: number;
+    durationMs: number;
+    timedOut: boolean;
+  }>;
+  startedAt: string;
+  finishedAt?: string | null;
+}
+
 interface TurnoAtencion {
   id: string;
   codigo: string;
@@ -184,6 +202,13 @@ export class App implements OnInit, OnDestroy {
     contactPhone: '',
   };
   portalLoginPasswordVisible = false;
+  temporaryTestBusy = false;
+  temporaryTestFinished = false;
+  temporaryTestTicket = '';
+  temporaryTestMessage = '';
+  temporaryTestStep = '';
+  temporaryTestReportAvailable = false;
+  temporaryTestDownloading = false;
   portalPasswordVisible = false;
   portalTermsOpen = false;
   portalTermsReadToEnd = false;
@@ -895,6 +920,119 @@ export class App implements OnInit, OnDestroy {
     } finally {
       this.portalBusy = false;
     }
+  }
+
+  async runTemporaryTests(): Promise<void> {
+    if (this.portalProfile?.role !== 'admin' || this.temporaryTestBusy) return;
+    const startingNewRun = this.temporaryTestFinished;
+    this.temporaryTestBusy = true;
+    this.temporaryTestMessage = this.temporaryTestTicket && !startingNewRun
+      ? 'Consultando el estado de la ejecución…'
+      : 'Preparando las pruebas del sitio…';
+    try {
+      const { data: { session }, error } = await this.clinicalPortal.supabase.auth.getSession();
+      if (error) throw new Error(error.message);
+      if (!session?.access_token) {
+        throw new Error('Tu sesión expiró. Inicia sesión nuevamente como administrador.');
+      }
+
+      if (!this.temporaryTestTicket || startingNewRun) {
+        const started = await this.requestTemporaryTestApi<{
+          ticket: string;
+          message: string;
+        }>('/api/test-runs', session.access_token, { method: 'POST' });
+        this.temporaryTestTicket = started.ticket;
+        this.temporaryTestFinished = false;
+        this.temporaryTestReportAvailable = false;
+        this.temporaryTestStep = '';
+        this.temporaryTestMessage = started.message;
+      }
+
+      for (let attempt = 0; attempt < 720; attempt += 1) {
+        const run = await this.requestTemporaryTestApi<TemporaryTestRunStatus>(
+          `/api/test-runs/${encodeURIComponent(this.temporaryTestTicket)}`,
+          session.access_token,
+        );
+        this.temporaryTestStep = run.step ?? '';
+        this.temporaryTestReportAvailable = run.reportAvailable;
+        if (run.status === 'completed') {
+          this.temporaryTestFinished = true;
+          this.temporaryTestMessage = run.message
+            ?? (run.conclusion === 'success'
+              ? 'Las pruebas terminaron correctamente.'
+              : 'Las pruebas terminaron con errores.');
+          return;
+        }
+        this.temporaryTestMessage = run.message ?? 'Las pruebas del sitio están ejecutándose…';
+        await new Promise((resolve) => window.setTimeout(resolve, 5000));
+      }
+      this.temporaryTestMessage = 'La ejecución sigue activa. Pulsa el botón para consultar su avance.';
+    } catch (error) {
+      this.temporaryTestMessage = error instanceof Error
+        ? error.message
+        : 'No se pudo ejecutar las pruebas. Inténtalo más tarde.';
+    } finally {
+      this.temporaryTestBusy = false;
+    }
+  }
+
+  async downloadTemporaryTestReport(): Promise<void> {
+    if (this.portalProfile?.role !== 'admin' || !this.temporaryTestTicket) return;
+    this.temporaryTestDownloading = true;
+    this.temporaryTestMessage = 'Descargando el reporte…';
+    try {
+      const { data: { session }, error } = await this.clinicalPortal.supabase.auth.getSession();
+      if (error) throw new Error(error.message);
+      if (!session?.access_token) {
+        throw new Error('Tu sesión expiró. Inicia sesión nuevamente como administrador.');
+      }
+      const response = await fetch(
+        this.api(`/api/test-runs/${encodeURIComponent(this.temporaryTestTicket)}/report`),
+        { headers: { Authorization: `Bearer ${session.access_token}` } },
+      );
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload && typeof payload.error === 'string'
+          ? payload.error
+          : `No se pudo descargar el reporte (HTTP ${response.status}).`);
+      }
+      const objectUrl = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = 'pruebas-frontend-backend.pdf';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+      this.temporaryTestMessage = 'Descarga iniciada.';
+    } catch (error) {
+      this.temporaryTestMessage = error instanceof Error
+        ? error.message
+        : 'No se pudo descargar el reporte. Inténtalo nuevamente.';
+    } finally {
+      this.temporaryTestDownloading = false;
+    }
+  }
+
+  private async requestTemporaryTestApi<T>(
+    path: string,
+    accessToken: string,
+    init: RequestInit = {},
+  ): Promise<T> {
+    const headers = new Headers(init.headers);
+    headers.set('Authorization', `Bearer ${accessToken}`);
+    if (init.method === 'POST') headers.set('Content-Type', 'application/json');
+    const response = await fetch(this.api(path), {
+      ...init,
+      headers,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload && typeof payload.error === 'string'
+        ? payload.error
+        : `No se pudo completar la solicitud de pruebas (HTTP ${response.status}).`);
+    }
+    return payload as T;
   }
 
   setPortalAuthMode(mode: 'login' | 'register'): void {

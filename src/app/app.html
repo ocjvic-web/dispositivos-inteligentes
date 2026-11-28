@@ -69,8 +69,14 @@
           <h1>{{ slide.titulo }}</h1>
           <p>{{ slide.subtitulo }}</p>
           <div class="hero-ctas">
-            <button class="btn-hero-primary" (click)="navegar('contacto')">{{ slide.cta }}</button>
-            <button class="btn-hero-outline" (click)="navegar('dashboard')">Ver Dashboard →</button>
+            <a
+              class="btn-hero-primary"
+              href="/downloads/smartwatch_secure_auth_app.apk"
+              download="BioMedica-Android.apk">
+              Obtén la app
+            </a>
+            <button class="btn-hero-outline" (click)="navegar('contacto')">{{ slide.cta }}</button>
+            <a class="btn-hero-outline" href="#app-movil">Conocer la app móvil</a>
           </div>
         </div>
       </div>
@@ -93,6 +99,77 @@
         <span class="stat-banner-lbl">{{ s.label }}</span>
       </div>
     }
+  </section>
+
+  <section class="section app-download-section" id="app-movil" aria-labelledby="app-download-title">
+    <div class="section-header">
+      <div class="section-tag">BioMedica móvil · Android</div>
+      <h2 id="app-download-title">Tu seguimiento de salud, también en el teléfono</h2>
+      <p>
+        Descarga la app Android para consultar tus registros, crear reportes y conectar las
+        mediciones que tus dispositivos compartan contigo.
+      </p>
+      <a
+        class="btn-primary app-download-button"
+        href="/downloads/smartwatch_secure_auth_app.apk"
+        download="BioMedica-Android.apk">
+        <span aria-hidden="true">⬇</span>
+        Obtén la app
+      </a>
+      <p class="app-download-note">
+        APK para Android 8 o posterior · v1.5.20. Durante la instalación, concede únicamente los
+        permisos que decidas usar.
+      </p>
+    </div>
+
+    <div class="app-feature-grid">
+      <article class="app-feature-card">
+        <span class="app-feature-icon" aria-hidden="true">⌚</span>
+        <h3>Reloj y mediciones</h3>
+        <p>
+          Consulta las capturas compatibles de Wear OS y las mediciones registradas en tu cuenta,
+          con su fecha y dispositivo de origen.
+        </p>
+      </article>
+      <article class="app-feature-card">
+        <span class="app-feature-icon" aria-hidden="true">💚</span>
+        <h3>Samsung Health + Health Connect</h3>
+        <p>
+          Sincroniza las lecturas que Samsung Health comparta con Health Connect y para las que
+          otorgues permiso, como pulso, oxígeno, sueño o composición corporal cuando estén
+          disponibles.
+        </p>
+      </article>
+      <article class="app-feature-card">
+        <span class="app-feature-icon" aria-hidden="true">📋</span>
+        <h3>Reportes y expediente</h3>
+        <p>
+          Registra reportes de salud y consulta la información vinculada a tu cuenta y a tu equipo
+          clínico autorizado.
+        </p>
+      </article>
+      <article class="app-feature-card">
+        <span class="app-feature-icon" aria-hidden="true">🔔</span>
+        <h3>Recordatorios y avisos</h3>
+        <p>
+          Organiza recordatorios de medicación y medición, y recibe avisos de actividad clínica
+          cuando la función esté configurada.
+        </p>
+      </article>
+    </div>
+
+    <aside class="app-setup-card">
+      <h3>Cómo conectar Samsung Health</h3>
+      <ol>
+        <li>Instala o actualiza Health Connect y habilita Samsung Health como origen de datos.</li>
+        <li>Abre BioMedica, inicia sesión y entra a Health Connect.</li>
+        <li>Autoriza solo las categorías que quieras compartir y pulsa “Sincronizar ahora”.</li>
+      </ol>
+      <p>
+        La sincronización depende de lo que el dispositivo y Health Connect permitan compartir.
+        ECG y forma de onda no se importan por esta vía; no se simulan.
+      </p>
+    </aside>
   </section>
 
   <!-- Productos / Equipos -->
@@ -483,34 +560,6 @@
           <div><span>Servicio</span><strong>{{ turnoActual?.servicio ?? 'Cardiología' }}</strong></div>
           <div><span>Sala</span><strong>{{ turnoActual?.sala ?? tvSeleccionada.sala }}</strong></div>
           <div><span>ETA</span><strong>{{ turnoActual?.etaMin ?? 0 }} min</strong></div>
-        </div>
-      </article>
-
-      <article class="tvwall-card">
-        <div class="tvwall-card-head">
-          <span class="section-tag">Signos vitales de la app</span>
-          <span class="tv-screen-badge">Live</span>
-        </div>
-        <div class="tv-vitals-grid">
-          <div><span>Frecuencia</span><strong>{{ latestClinicalMeasurement?.['heart_rate_bpm'] ?? '—' }} bpm</strong></div>
-          <div><span>SpO₂</span><strong>{{ latestClinicalMeasurement?.['oxygen_saturation_percent'] ?? '—' }}%</strong></div>
-          <div><span>Temperatura</span><strong>{{ latestClinicalMeasurement?.['body_temperature_celsius'] ?? '—' }}°C</strong></div>
-          <div><span>Paciente</span><strong>{{ latestClinicalPatientName }}</strong></div>
-        </div>
-        <p class="tvwall-source">
-          {{ latestClinicalMeasurement ? formatPortalDate(latestClinicalMeasurement['reading_at']) : 'Sin mediciones registradas' }}
-        </p>
-      </article>
-
-      <article class="tvwall-card">
-        <div class="tvwall-card-head">
-          <span class="section-tag">Alertas</span>
-          <span class="tv-screen-badge">Seguridad clínica</span>
-        </div>
-        <div class="tv-alert-list">
-          @for (alerta of alertasCriticas; track alerta) {
-            <div class="tv-alert-item">{{ alerta }}</div>
-          }
         </div>
       </article>
 
@@ -1500,4 +1549,38 @@
     <span>© 2026 <strong>BioMedica</strong> · Plataforma Clínica</span>
     <span>Todos los derechos reservados</span>
   </div>
+  @if (portalProfile?.role === 'admin') {
+    <div class="footer-test-tools">
+      <button
+        class="footer-test-button"
+        type="button"
+        (click)="runTemporaryTests()"
+        [disabled]="temporaryTestBusy">
+        {{ temporaryTestBusy
+          ? 'Ejecutando pruebas…'
+          : temporaryTestFinished
+            ? 'Ejecutar pruebas nuevamente'
+            : temporaryTestTicket
+              ? 'Consultar avance de las pruebas'
+              : 'Botón temporal para pruebas' }}
+      </button>
+      @if (temporaryTestMessage) {
+        <p class="footer-test-message" role="status" aria-live="polite">{{ temporaryTestMessage }}</p>
+      }
+      @if (temporaryTestStep && !temporaryTestFinished) {
+        <p class="footer-test-message">Paso actual: {{ temporaryTestStep }}</p>
+      }
+      @if (temporaryTestReportAvailable) {
+        <button
+          class="footer-test-download"
+          type="button"
+          (click)="downloadTemporaryTestReport()"
+          [disabled]="temporaryTestDownloading">
+          {{ temporaryTestDownloading
+            ? 'Descargando…'
+            : 'Descargar reporte frontend y backend (PDF)' }}
+        </button>
+      }
+    </div>
+  }
 </footer>

@@ -2,6 +2,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
+const { spawn } = require('child_process');
 
 const rootDir = __dirname;
 const distRootDir = path.join(rootDir, 'dist', 'pagina-web');
@@ -20,6 +22,13 @@ const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabasePublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY || '';
 const coreApiUrl = process.env.BIOMEDICA_CORE_API_URL
   || 'https://app-biomedica-web.onrender.com';
+const testRunnerCooldowns = new Map();
+const testRunnerCooldownMs = 5 * 60 * 1000;
+const testRuns = new Map();
+const testRunRetentionMs = 3 * 60 * 60 * 1000;
+const testRunCommandTimeoutMs = 15 * 60 * 1000;
+const testRunMaxLogTailLength = 8000;
+let activeTestRunId = null;
 
 function nowIso() {
   return new Date().toISOString();
@@ -278,6 +287,7 @@ const mimeTypes = {
   '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
+  '.apk': 'application/vnd.android.package-archive',
   '.wasm': 'application/wasm',
   '.ttf': 'font/ttf',
   '.otf': 'font/otf',
@@ -326,6 +336,307 @@ async function isActiveSupabaseAccount(authorization) {
   return Array.isArray(profiles) && profiles.length === 1 && profiles[0].is_active === true;
 }
 
+async function authorizeTestRunnerAdmin(req, res) {
+  const accessToken = extractBearerToken(req);
+  if (!accessToken) {
+    unauthorized(res, 'Inicia sesión como administrador para ejecutar las pruebas.');
+    return null;
+  }
+  if (!supabaseUrl || !supabasePublishableKey) {
+    sendJson(res, 503, { error: 'El servicio de pruebas no está configurado.' });
+    return null;
+  }
+
+  const baseUrl = supabaseUrl.replace(/\/+$/, '');
+  const headers = {
+    apikey: supabasePublishableKey,
+    authorization: `Bearer ${accessToken}`,
+  };
+  try {
+    const userResponse = await fetch(`${baseUrl}/auth/v1/user`, {
+      headers,
+      signal: AbortSignal.timeout(10000),
+    });
+    if (userResponse.status === 401 || userResponse.status === 403) {
+      unauthorized(res, 'La sesión expiró. Inicia sesión nuevamente.');
+      return null;
+    }
+    if (!userResponse.ok) {
+      sendJson(res, 502, { error: 'No se pudo validar la sesión administrativa.' });
+      return null;
+    }
+
+    const user = await userResponse.json();
+    if (typeof user.id !== 'string' || !user.id) {
+      unauthorized(res, 'La sesión no tiene un usuario válido.');
+      return null;
+    }
+
+    const profileUrl = new URL(`${baseUrl}/rest/v1/profiles`);
+    profileUrl.searchParams.set('id', `eq.${user.id}`);
+    profileUrl.searchParams.set('select', 'role,is_active');
+    const profileResponse = await fetch(profileUrl, {
+      headers,
+      signal: AbortSignal.timeout(10000),
+    });
+    if (profileResponse.status === 401 || profileResponse.status === 403) {
+      forbidden(res, 'No tienes permiso para consultar las pruebas.');
+      return null;
+    }
+    if (!profileResponse.ok) {
+      sendJson(res, 502, { error: 'No se pudo validar el rol administrativo.' });
+      return null;
+    }
+
+    const profiles = await profileResponse.json();
+    const profile = Array.isArray(profiles) ? profiles[0] : null;
+    if (!profile || profile.is_active !== true || profile.role !== 'admin') {
+      forbidden(res, 'Solo un administrador activo puede ejecutar las pruebas.');
+      return null;
+    }
+    return user.id;
+  } catch (error) {
+    console.error('Test runner authentication failed:', error.message);
+    sendJson(res, 502, { error: 'No se pudo validar el acceso para las pruebas.' });
+    return null;
+  }
+}
+
+function createTestRunTicket(requestId, userId) {
+  const payload = Buffer.from(JSON.stringify({
+    requestId,
+    userId,
+    expiresAt: Date.now() + 3 * 60 * 60 * 1000,
+  })).toString('base64url');
+  const signature = crypto
+    .createHmac('sha256', sessionSecret)
+    .update(payload)
+    .digest('base64url');
+  return `${payload}.${signature}`;
+}
+
+function verifyTestRunTicket(ticket) {
+  if (!sessionSecret || typeof ticket !== 'string') return null;
+  const [payload, signature] = ticket.split('.');
+  if (!payload || !signature) return null;
+  const expected = crypto
+    .createHmac('sha256', sessionSecret)
+    .update(payload)
+    .digest('base64url');
+  const receivedBytes = Buffer.from(signature);
+  const expectedBytes = Buffer.from(expected);
+  if (
+    receivedBytes.length !== expectedBytes.length
+    || !crypto.timingSafeEqual(receivedBytes, expectedBytes)
+  ) {
+    return null;
+  }
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (
+      typeof decoded.requestId !== 'string'
+      || !/^[0-9a-f-]{36}$/i.test(decoded.requestId)
+      || typeof decoded.userId !== 'string'
+      || !Number.isFinite(decoded.expiresAt)
+      || Date.now() > decoded.expiresAt
+    ) {
+      return null;
+    }
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+function testPythonExecutable() {
+  const virtualEnvironmentPython = process.platform === 'win32'
+    ? path.join(rootDir, '.venv-test', 'Scripts', 'python.exe')
+    : path.join(rootDir, '.venv-test', 'bin', 'python');
+  if (fs.existsSync(virtualEnvironmentPython)) return virtualEnvironmentPython;
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+function localTestEnvironment(overrides = {}) {
+  const allowedVariables = [
+    'PATH',
+    'HOME',
+    'TMPDIR',
+    'TEMP',
+    'TMP',
+    'SystemRoot',
+    'WINDIR',
+    'USERPROFILE',
+    'APPDATA',
+    'LOCALAPPDATA',
+    'PLAYWRIGHT_BROWSERS_PATH',
+  ];
+  const environment = {};
+  for (const name of allowedVariables) {
+    if (process.env[name]) environment[name] = process.env[name];
+  }
+  return {
+    ...environment,
+    PYTHONUNBUFFERED: '1',
+    ...overrides,
+  };
+}
+
+function terminateTestProcess(child) {
+  if (!child || child.killed || child.exitCode !== null) return;
+  try {
+    if (process.platform !== 'win32' && child.pid) {
+      process.kill(-child.pid, 'SIGTERM');
+    } else {
+      child.kill();
+    }
+  } catch (error) {
+    if (error.code !== 'ESRCH') throw error;
+  }
+}
+
+function runTestCommand(run, label, command, args, env = {}) {
+  const startedAt = Date.now();
+  run.step = label;
+  run.message = label;
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: rootDir,
+      env: localTestEnvironment(env),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
+    });
+    const log = fs.createWriteStream(run.logPath, { flags: 'a' });
+    let tail = '';
+    let settled = false;
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      terminateTestProcess(child);
+    }, testRunCommandTimeoutMs);
+    run.child = child;
+
+    const capture = (chunk) => {
+      log.write(chunk);
+      tail = `${tail}${chunk.toString('utf8')}`.slice(-testRunMaxLogTailLength);
+    };
+    child.stdout.on('data', capture);
+    child.stderr.on('data', capture);
+
+    child.once('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      run.child = null;
+      log.end();
+      reject(error);
+    });
+
+    child.once('close', (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      run.child = null;
+      log.end();
+      const step = {
+        name: label,
+        exitCode: code === null ? 1 : code,
+        durationMs: Date.now() - startedAt,
+        timedOut,
+        signal: signal || null,
+        outputTail: tail,
+      };
+      run.steps.push(step);
+      resolve(step);
+    });
+  });
+}
+
+function scheduleTestRunCleanup(run) {
+  const cleanup = setTimeout(() => {
+    testRuns.delete(run.requestId);
+    fs.rm(run.outputDir, { recursive: true, force: true }, (error) => {
+      if (error) console.error('Could not remove expired test-run files:', error.message);
+    });
+  }, testRunRetentionMs);
+  cleanup.unref();
+}
+
+async function executeLocalWebsiteTestRun(run) {
+  const python = testPythonExecutable();
+  const frontendJunit = path.join(run.outputDir, 'frontend-junit.xml');
+  const backendJunit = path.join(run.outputDir, 'backend-junit.xml');
+  const frontendObservations = path.join(run.outputDir, 'frontend-observations.json');
+  const backendObservations = path.join(run.outputDir, 'backend-observations.json');
+  const testEnvironment = {
+    TEST_RESULTS_DIR: run.outputDir,
+  };
+  const commands = [
+    {
+      label: 'Playwright: pruebas frontend',
+      args: [
+        '-m', 'pytest', '-q', '-m', 'frontend',
+        `--junitxml=${frontendJunit}`,
+      ],
+      env: { ...testEnvironment, TEST_OBSERVATIONS_PATH: frontendObservations },
+    },
+    {
+      label: 'pytest: contratos de APIs backend',
+      args: [
+        '-m', 'pytest', '-q', '-m', 'backend',
+        `--junitxml=${backendJunit}`,
+      ],
+      env: { ...testEnvironment, TEST_OBSERVATIONS_PATH: backendObservations },
+    },
+    {
+      label: 'Generando reporte PDF frontend/backend',
+      args: [
+        path.join(rootDir, 'tools', 'build-deployment-test-reports.py'),
+        '--frontend-junit', frontendJunit,
+        '--backend-junit', backendJunit,
+        '--frontend-observations', frontendObservations,
+        '--backend-observations', backendObservations,
+        '--output-dir', run.outputDir,
+      ],
+      env: testEnvironment,
+    },
+  ];
+
+  try {
+    for (const command of commands) {
+      const step = await runTestCommand(
+        run,
+        command.label,
+        python,
+        command.args,
+        command.env,
+      );
+      if (step.timedOut) {
+        run.error = `${command.label} excedió el tiempo máximo permitido.`;
+      }
+    }
+  } catch (error) {
+    run.error = `No se pudo ejecutar ${run.step}: ${error.message}`;
+    console.error('Local website test runner failed:', error.message);
+  } finally {
+    run.finishedAt = nowIso();
+    run.status = 'completed';
+    run.conclusion = run.error || run.steps.some((step) => step.exitCode !== 0)
+      ? 'failure'
+      : 'success';
+    run.reportPath = path.join(run.outputDir, 'pruebas-frontend-backend.pdf');
+    run.reportAvailable = fs.existsSync(run.reportPath);
+    run.step = '';
+    run.message = run.conclusion === 'success'
+      ? 'Las pruebas frontend y backend terminaron correctamente.'
+      : run.reportAvailable
+        ? 'Las pruebas terminaron con errores; el reporte está disponible.'
+        : run.error || 'Las pruebas terminaron con errores y no se pudo generar el PDF.';
+    if (activeTestRunId === run.requestId) activeTestRunId = null;
+    scheduleTestRunCleanup(run);
+  }
+}
+
 function readBody(req) {
   return new Promise((resolve) => {
     let data = '';
@@ -347,6 +658,29 @@ function readBody(req) {
 function serveFile(res, filePath) {
   const ext = path.extname(filePath).toLowerCase();
   const type = mimeTypes[ext] || 'application/octet-stream';
+  if (ext === '.apk') {
+    fs.stat(filePath, (statError, stats) => {
+      if (statError) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Not found');
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': type,
+        'Content-Length': stats.size,
+        'Content-Disposition': 'attachment; filename="BioMedica-Android.apk"',
+        'Cache-Control': 'public, max-age=3600',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      const apkStream = fs.createReadStream(filePath);
+      apkStream.on('error', (error) => {
+        console.error('Could not stream Android app download:', error.message);
+        res.destroy(error);
+      });
+      apkStream.pipe(res);
+    });
+    return;
+  }
   // El panel se puede insertar como iframe desde este mismo origen.
   const isFlutterAsset = filePath.includes('flutter-dashboard');
   fs.readFile(filePath, (err, data) => {
@@ -362,6 +696,9 @@ function serveFile(res, filePath) {
       'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
       'Content-Security-Policy': "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com https://www.gstatic.com data: blob:; img-src 'self' data: https:; frame-src 'self' https://www.google.com; connect-src 'self' http: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; font-src 'self' data: https:; worker-src 'self' blob:",
     };
+    if (ext === '.apk') {
+      headers['Content-Disposition'] = 'attachment; filename="BioMedica-Android.apk"';
+    }
     if (!isFlutterAsset) {
       headers['X-Frame-Options'] = 'SAMEORIGIN';
     }
@@ -479,6 +816,165 @@ const server = http.createServer(async (req, res) => {
       'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     });
     res.end();
+    return;
+  }
+
+  if (pathname === '/api/test-runs' && req.method === 'POST') {
+    const userId = await authorizeTestRunnerAdmin(req, res);
+    if (!userId) return;
+    if (!sessionSecret) {
+      sendJson(res, 503, {
+        error: 'El servicio de pruebas temporales todavía no está habilitado.',
+      });
+      return;
+    }
+
+    if (activeTestRunId) {
+      sendJson(res, 409, {
+        error: 'Ya hay una ejecución completa de pruebas en curso. Inténtalo cuando termine.',
+      });
+      return;
+    }
+
+    const lastRunAt = testRunnerCooldowns.get(userId) || 0;
+    const remainingCooldown = testRunnerCooldownMs - (Date.now() - lastRunAt);
+    if (remainingCooldown > 0) {
+      sendJson(res, 429, {
+        error: `Espera ${Math.ceil(remainingCooldown / 1000)} segundos antes de iniciar otra ejecución.`,
+      });
+      return;
+    }
+
+    try {
+      const requestId = crypto.randomUUID();
+      const outputDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'biomedica-test-run-'));
+      const run = {
+        requestId,
+        userId,
+        outputDir,
+        logPath: path.join(outputDir, 'runner.log'),
+        status: 'in_progress',
+        conclusion: null,
+        step: 'Preparando la ejecución',
+        message: 'Iniciando las pruebas Playwright y pytest en este servicio.',
+        steps: [],
+        startedAt: nowIso(),
+        finishedAt: null,
+        reportPath: null,
+        reportAvailable: false,
+        error: null,
+        child: null,
+      };
+      testRuns.set(requestId, run);
+      activeTestRunId = requestId;
+      testRunnerCooldowns.set(userId, Date.now());
+      const ticket = createTestRunTicket(requestId, userId);
+      sendJson(res, 202, {
+        requestId,
+        ticket,
+        status: run.status,
+        message: run.message,
+      });
+      executeLocalWebsiteTestRun(run).catch((error) => {
+        console.error('Local website test runner failed:', error.message);
+        run.error = `No se pudo completar la ejecución: ${error.message}`;
+        run.status = 'completed';
+        run.conclusion = 'failure';
+        run.finishedAt = nowIso();
+        run.message = 'No se pudo completar la ejecución de pruebas.';
+        if (activeTestRunId === requestId) activeTestRunId = null;
+        scheduleTestRunCleanup(run);
+      });
+    } catch (error) {
+      console.error('Could not create the local test run:', error.message);
+      sendJson(res, 500, {
+        error: 'No se pudo iniciar la ejecución completa de pruebas.',
+      });
+    }
+    return;
+  }
+
+  const testRunMatch = pathname.match(/^\/api\/test-runs\/([^/]+)$/);
+  if (testRunMatch && req.method === 'GET') {
+    const userId = await authorizeTestRunnerAdmin(req, res);
+    if (!userId) return;
+    const ticket = testRunMatch[1];
+    const decoded = verifyTestRunTicket(ticket);
+    if (!decoded || decoded.userId !== userId) {
+      sendJson(res, 404, { error: 'No se encontró esta ejecución de pruebas.' });
+      return;
+    }
+    const run = testRuns.get(decoded.requestId);
+    if (!run || run.userId !== userId) {
+      sendJson(res, 404, { error: 'No se encontró esta ejecución de pruebas.' });
+      return;
+    }
+    sendJson(res, 200, {
+      requestId: run.requestId,
+      status: run.status,
+      conclusion: run.conclusion,
+      step: run.step,
+      message: run.message,
+      error: run.error,
+      reportAvailable: run.reportAvailable,
+      steps: run.steps.map(({ name, exitCode, durationMs, timedOut }) => ({
+        name,
+        exitCode,
+        durationMs,
+        timedOut,
+      })),
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+    });
+    return;
+  }
+
+  const testRunReportMatch = pathname.match(/^\/api\/test-runs\/([^/]+)\/report$/);
+  if (testRunReportMatch && req.method === 'GET') {
+    const userId = await authorizeTestRunnerAdmin(req, res);
+    if (!userId) return;
+    const ticket = testRunReportMatch[1];
+    const decoded = verifyTestRunTicket(ticket);
+    if (!decoded || decoded.userId !== userId) {
+      sendJson(res, 404, { error: 'No se encontró esta ejecución de pruebas.' });
+      return;
+    }
+
+    const run = testRuns.get(decoded.requestId);
+    if (!run || run.userId !== userId) {
+      sendJson(res, 404, { error: 'No se encontró esta ejecución de pruebas.' });
+      return;
+    }
+    if (run.status !== 'completed') {
+      sendJson(res, 409, { error: 'El reporte estará disponible cuando terminen las pruebas.' });
+      return;
+    }
+    if (!run.reportAvailable || !run.reportPath || !fs.existsSync(run.reportPath)) {
+      sendJson(res, 404, { error: 'No se pudo generar el reporte de pruebas.' });
+      return;
+    }
+    let stat;
+    try {
+      stat = await fs.promises.stat(run.reportPath);
+    } catch (error) {
+      console.error('Could not inspect local test report:', error.message);
+      sendJson(res, 404, { error: 'El reporte solicitado ya no está disponible.' });
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+      'Content-Length': stat.size,
+      'Content-Disposition': 'attachment; filename="pruebas-frontend-backend.pdf"',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Access-Control-Allow-Origin': '*',
+    });
+    const report = fs.createReadStream(run.reportPath);
+    report.on('error', (error) => {
+      console.error('Could not read local test report:', error.message);
+      res.destroy(error);
+    });
+    report.pipe(res);
     return;
   }
 

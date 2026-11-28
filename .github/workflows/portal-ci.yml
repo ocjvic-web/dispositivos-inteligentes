@@ -1,0 +1,175 @@
+name: BioMedica SmartTV portal CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-test:
+    name: Build, Playwright, API, and red-box tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TEST_RESULTS_DIR: artifacts/test-results
+    steps:
+      - name: Check out website
+        uses: actions/checkout@v4
+
+      - name: Check out mobile red-box test suite
+        uses: actions/checkout@v4
+        with:
+          repository: vic0192/app-movil-integral
+          ref: ci/caja-roja-report
+          path: redbox-mobile
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            redbox-mobile/backend/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-test.txt
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up Chrome for Angular unit tests
+        id: chrome
+        uses: browser-actions/setup-chrome@v2
+
+      - name: Install website dependencies
+        run: npm ci
+
+      - name: Install mobile backend dependencies
+        run: npm ci --prefix redbox-mobile/backend
+
+      - name: Install mobile Flutter dependencies
+        working-directory: redbox-mobile
+        run: flutter pub get
+
+      - name: Install Python test dependencies
+        run: python -m pip install -r requirements-test.txt
+
+      - name: Install Playwright Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Build Angular production website
+        id: build
+        continue-on-error: true
+        run: npm run build
+
+      - name: Run Angular unit tests
+        id: angular
+        continue-on-error: true
+        env:
+          CHROME_BIN: ${{ steps.chrome.outputs.chrome-path }}
+        run: |
+          mkdir -p artifacts/test-results
+          set +e
+          npm test -- --watch=false --browsers=ChromeHeadless > artifacts/test-results/angular-unit-tests.log 2>&1
+          result=$?
+          cat artifacts/test-results/angular-unit-tests.log
+          exit "$result"
+
+      - name: Run Playwright frontend checks
+        id: frontend
+        continue-on-error: true
+        env:
+          TEST_OBSERVATIONS_PATH: artifacts/test-results/frontend-observations.json
+        run: |
+          mkdir -p artifacts/test-results
+          python -m pytest -m frontend --junitxml=artifacts/test-results/frontend-junit.xml
+
+      - name: Run backend API contract checks
+        id: backend
+        continue-on-error: true
+        env:
+          TEST_OBSERVATIONS_PATH: artifacts/test-results/backend-observations.json
+        run: |
+          mkdir -p artifacts/test-results
+          python -m pytest -m backend --junitxml=artifacts/test-results/backend-junit.xml
+
+      - name: Run mobile red-box test script
+        id: redbox
+        continue-on-error: true
+        run: pwsh -NoLogo -NoProfile -File redbox-mobile/scripts/pruebas/run-caja-roja.ps1
+
+      - name: Generate the two PDF reports
+        id: reports
+        if: always()
+        continue-on-error: true
+        run: |
+          summary="$(find redbox-mobile/test-results/pruebas -path '*/caja-roja-*/summary.json' -type f -print -quit 2>/dev/null || true)"
+          if [ -z "$summary" ]; then
+            summary="$RUNNER_TEMP/redbox-summary-not-generated.json"
+          fi
+          python tools/build-deployment-test-reports.py \
+            --frontend-junit artifacts/test-results/frontend-junit.xml \
+            --backend-junit artifacts/test-results/backend-junit.xml \
+            --frontend-observations artifacts/test-results/frontend-observations.json \
+            --backend-observations artifacts/test-results/backend-observations.json \
+            --angular-log artifacts/test-results/angular-unit-tests.log \
+            --redbox-summary "$summary" \
+            --output-dir artifacts/test-results/reports
+
+      - name: Upload frontend and backend PDF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pruebas-frontend-backend-${{ github.run_number }}
+          path: artifacts/test-results/reports/pruebas-frontend-backend.pdf
+          if-no-files-found: warn
+
+      - name: Upload red-box PDF
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pruebas-caja-roja-${{ github.run_number }}
+          path: artifacts/test-results/reports/pruebas-caja-roja.pdf
+          if-no-files-found: warn
+
+      - name: Upload raw test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidencia-pruebas-bioMedica-${{ github.run_number }}
+          path: |
+            artifacts/test-results/
+            redbox-mobile/test-results/pruebas/caja-roja-*/
+          if-no-files-found: warn
+
+      - name: Enforce deployment test gate
+        if: always()
+        env:
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          ANGULAR_RESULT: ${{ steps.angular.outcome }}
+          FRONTEND_RESULT: ${{ steps.frontend.outcome }}
+          BACKEND_RESULT: ${{ steps.backend.outcome }}
+          REDBOX_RESULT: ${{ steps.redbox.outcome }}
+          REPORTS_RESULT: ${{ steps.reports.outcome }}
+        run: |
+          failed=0
+          for result in "$BUILD_RESULT" "$ANGULAR_RESULT" "$FRONTEND_RESULT" "$BACKEND_RESULT" "$REDBOX_RESULT" "$REPORTS_RESULT"; do
+            if [ "$result" != "success" ]; then
+              echo "Required deployment check did not pass: $result"
+              failed=1
+            fi
+          done
+          exit "$failed"
