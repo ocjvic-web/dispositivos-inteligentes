@@ -2,7 +2,7 @@ services:
   - type: web
     name: biomedica-smarttv
     runtime: node
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci && python3 -m venv .venv-test && .venv-test/bin/python -m pip install --no-cache-dir -r requirements-test.txt && .venv-test/bin/python -m playwright install --with-deps chromium && npm run build
     startCommand: npm run serve:prod
     autoDeployTrigger: checksPass
     plan: free
@@ -15,8 +15,8 @@ services:
         sync: false
       - key: SESSION_SECRET
         generateValue: true
-      - key: BIOMEDICA_TEST_RUNNER_GITHUB_TOKEN
-        sync: false
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: .cache/ms-playwright
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_PUBLISHABLE_KEY

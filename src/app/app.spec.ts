@@ -33,6 +33,22 @@ describe('App', () => {
     expect(compiled.querySelector('h1')?.textContent).toContain('Centro de Innovación Biomédica');
   });
 
+  it('offers the Android app download and explains Health Connect setup on home', () => {
+    const fixture = TestBed.createComponent(App);
+    fixture.detectChanges();
+    const compiled = fixture.nativeElement as HTMLElement;
+    const downloads = Array.from(
+      compiled.querySelectorAll<HTMLAnchorElement>(
+        'a[href="/downloads/smartwatch_secure_auth_app.apk"]',
+      ),
+    );
+
+    expect(downloads.length).toBeGreaterThan(0);
+    expect(downloads.every((link) => link.hasAttribute('download'))).toBeTrue();
+    expect(compiled.textContent).toContain('Samsung Health + Health Connect');
+    expect(compiled.textContent).toContain('ECG y forma de onda no se importan');
+  });
+
   it('shows only public navigation and account actions to visitors', () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;

@@ -87,19 +87,22 @@ interface SesionAdministrador {
   expiresAt: string;
 }
 
-interface TemporaryTestArtifact {
-  id: number;
-  name: string;
-  expiresAt: string;
-}
-
 interface TemporaryTestRunStatus {
   requestId: string;
-  runId?: number;
-  runUrl?: string;
-  status: 'queued' | 'in_progress' | 'completed';
+  status: 'in_progress' | 'completed';
   conclusion?: string | null;
-  artifacts: TemporaryTestArtifact[];
+  step?: string;
+  message?: string;
+  error?: string | null;
+  reportAvailable: boolean;
+  steps: Array<{
+    name: string;
+    exitCode: number;
+    durationMs: number;
+    timedOut: boolean;
+  }>;
+  startedAt: string;
+  finishedAt?: string | null;
 }
 
 interface TurnoAtencion {
@@ -202,10 +205,10 @@ export class App implements OnInit, OnDestroy {
   temporaryTestBusy = false;
   temporaryTestFinished = false;
   temporaryTestTicket = '';
-  temporaryTestRunUrl = '';
   temporaryTestMessage = '';
-  temporaryTestArtifacts: TemporaryTestArtifact[] = [];
-  temporaryTestDownloadingArtifactId: number | null = null;
+  temporaryTestStep = '';
+  temporaryTestReportAvailable = false;
+  temporaryTestDownloading = false;
   portalPasswordVisible = false;
   portalTermsOpen = false;
   portalTermsReadToEnd = false;
@@ -921,11 +924,11 @@ export class App implements OnInit, OnDestroy {
 
   async runTemporaryTests(): Promise<void> {
     if (this.portalProfile?.role !== 'admin' || this.temporaryTestBusy) return;
+    const startingNewRun = this.temporaryTestFinished;
     this.temporaryTestBusy = true;
-    this.temporaryTestMessage = this.temporaryTestTicket
+    this.temporaryTestMessage = this.temporaryTestTicket && !startingNewRun
       ? 'Consultando el estado de la ejecución…'
-      : 'Preparando la ejecución completa…';
-    this.temporaryTestArtifacts = [];
+      : 'Preparando las pruebas del sitio…';
     try {
       const { data: { session }, error } = await this.clinicalPortal.supabase.auth.getSession();
       if (error) throw new Error(error.message);
@@ -933,12 +936,15 @@ export class App implements OnInit, OnDestroy {
         throw new Error('Tu sesión expiró. Inicia sesión nuevamente como administrador.');
       }
 
-      if (!this.temporaryTestTicket) {
+      if (!this.temporaryTestTicket || startingNewRun) {
         const started = await this.requestTemporaryTestApi<{
           ticket: string;
           message: string;
         }>('/api/test-runs', session.access_token, { method: 'POST' });
         this.temporaryTestTicket = started.ticket;
+        this.temporaryTestFinished = false;
+        this.temporaryTestReportAvailable = false;
+        this.temporaryTestStep = '';
         this.temporaryTestMessage = started.message;
       }
 
@@ -947,18 +953,17 @@ export class App implements OnInit, OnDestroy {
           `/api/test-runs/${encodeURIComponent(this.temporaryTestTicket)}`,
           session.access_token,
         );
-        this.temporaryTestArtifacts = run.artifacts ?? [];
-        this.temporaryTestRunUrl = run.runUrl ?? '';
+        this.temporaryTestStep = run.step ?? '';
+        this.temporaryTestReportAvailable = run.reportAvailable;
         if (run.status === 'completed') {
           this.temporaryTestFinished = true;
-          this.temporaryTestMessage = run.conclusion === 'success'
-            ? 'Todas las pruebas terminaron correctamente. Ya puedes descargar los reportes.'
-            : 'Las pruebas terminaron con errores. Descarga los reportes para revisar el resultado.';
+          this.temporaryTestMessage = run.message
+            ?? (run.conclusion === 'success'
+              ? 'Las pruebas terminaron correctamente.'
+              : 'Las pruebas terminaron con errores.');
           return;
         }
-        this.temporaryTestMessage = run.status === 'in_progress'
-          ? 'Las pruebas están ejecutándose. Esta ejecución incluye el sitio, APIs y caja roja móvil…'
-          : 'La ejecución está en cola en GitHub Actions…';
+        this.temporaryTestMessage = run.message ?? 'Las pruebas del sitio están ejecutándose…';
         await new Promise((resolve) => window.setTimeout(resolve, 5000));
       }
       this.temporaryTestMessage = 'La ejecución sigue activa. Pulsa el botón para consultar su avance.';
@@ -971,9 +976,9 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  async downloadTemporaryTestArtifact(artifact: TemporaryTestArtifact): Promise<void> {
+  async downloadTemporaryTestReport(): Promise<void> {
     if (this.portalProfile?.role !== 'admin' || !this.temporaryTestTicket) return;
-    this.temporaryTestDownloadingArtifactId = artifact.id;
+    this.temporaryTestDownloading = true;
     this.temporaryTestMessage = 'Descargando el reporte…';
     try {
       const { data: { session }, error } = await this.clinicalPortal.supabase.auth.getSession();
@@ -982,7 +987,7 @@ export class App implements OnInit, OnDestroy {
         throw new Error('Tu sesión expiró. Inicia sesión nuevamente como administrador.');
       }
       const response = await fetch(
-        this.api(`/api/test-runs/${encodeURIComponent(this.temporaryTestTicket)}/artifacts/${artifact.id}`),
+        this.api(`/api/test-runs/${encodeURIComponent(this.temporaryTestTicket)}/report`),
         { headers: { Authorization: `Bearer ${session.access_token}` } },
       );
       if (!response.ok) {
@@ -994,7 +999,7 @@ export class App implements OnInit, OnDestroy {
       const objectUrl = URL.createObjectURL(await response.blob());
       const link = document.createElement('a');
       link.href = objectUrl;
-      link.download = `${artifact.name}.zip`;
+      link.download = 'pruebas-frontend-backend.pdf';
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -1005,7 +1010,7 @@ export class App implements OnInit, OnDestroy {
         ? error.message
         : 'No se pudo descargar el reporte. Inténtalo nuevamente.';
     } finally {
-      this.temporaryTestDownloadingArtifactId = null;
+      this.temporaryTestDownloading = false;
     }
   }
 

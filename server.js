@@ -2,6 +2,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
+const { spawn } = require('child_process');
 
 const rootDir = __dirname;
 const distRootDir = path.join(rootDir, 'dist', 'pagina-web');
@@ -18,15 +20,15 @@ const sessionSecret = process.env.SESSION_SECRET || '';
 const sessionTtlMs = Number(process.env.SESSION_TTL_MS || 1000 * 60 * 60 * 8);
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabasePublishableKey = process.env.SUPABASE_PUBLISHABLE_KEY || '';
-const githubActionsToken = process.env.BIOMEDICA_TEST_RUNNER_GITHUB_TOKEN || '';
-const testRunnerRepository = process.env.BIOMEDICA_TEST_RUNNER_REPOSITORY
-  || 'vic0192/app-movil-integral';
-const testRunnerWorkflow = 'deployment-test-suite.yml';
 const coreApiUrl = process.env.BIOMEDICA_CORE_API_URL
   || 'https://app-biomedica-web.onrender.com';
 const testRunnerCooldowns = new Map();
 const testRunnerCooldownMs = 5 * 60 * 1000;
-let testRunnerDispatchInProgress = false;
+const testRuns = new Map();
+const testRunRetentionMs = 3 * 60 * 60 * 1000;
+const testRunCommandTimeoutMs = 15 * 60 * 1000;
+const testRunMaxLogTailLength = 8000;
+let activeTestRunId = null;
 
 function nowIso() {
   return new Date().toISOString();
@@ -285,6 +287,7 @@ const mimeTypes = {
   '.jpeg': 'image/jpeg',
   '.svg': 'image/svg+xml',
   '.ico': 'image/x-icon',
+  '.apk': 'application/vnd.android.package-archive',
   '.wasm': 'application/wasm',
   '.ttf': 'font/ttf',
   '.otf': 'font/otf',
@@ -445,67 +448,193 @@ function verifyTestRunTicket(ticket) {
   }
 }
 
-function testRunnerRepoPath() {
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(testRunnerRepository)) {
-    throw new Error('Test runner repository configuration is invalid.');
-  }
-  return testRunnerRepository.split('/').map(encodeURIComponent).join('/');
+function testPythonExecutable() {
+  const virtualEnvironmentPython = process.platform === 'win32'
+    ? path.join(rootDir, '.venv-test', 'Scripts', 'python.exe')
+    : path.join(rootDir, '.venv-test', 'bin', 'python');
+  if (fs.existsSync(virtualEnvironmentPython)) return virtualEnvironmentPython;
+  return process.platform === 'win32' ? 'python' : 'python3';
 }
 
-async function githubActionsRequest(apiPath, method = 'GET', body) {
-  if (!githubActionsToken) {
-    throw new Error('Test runner credentials are not configured.');
+function localTestEnvironment(overrides = {}) {
+  const allowedVariables = [
+    'PATH',
+    'HOME',
+    'TMPDIR',
+    'TEMP',
+    'TMP',
+    'SystemRoot',
+    'WINDIR',
+    'USERPROFILE',
+    'APPDATA',
+    'LOCALAPPDATA',
+    'PLAYWRIGHT_BROWSERS_PATH',
+  ];
+  const environment = {};
+  for (const name of allowedVariables) {
+    if (process.env[name]) environment[name] = process.env[name];
   }
-  const response = await fetch(`https://api.github.com/repos/${testRunnerRepoPath()}${apiPath}`, {
-    method,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${githubActionsToken}`,
-      'X-GitHub-Api-Version': '2022-11-28',
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(15000),
+  return {
+    ...environment,
+    PYTHONUNBUFFERED: '1',
+    ...overrides,
+  };
+}
+
+function terminateTestProcess(child) {
+  if (!child || child.killed || child.exitCode !== null) return;
+  try {
+    if (process.platform !== 'win32' && child.pid) {
+      process.kill(-child.pid, 'SIGTERM');
+    } else {
+      child.kill();
+    }
+  } catch (error) {
+    if (error.code !== 'ESRCH') throw error;
+  }
+}
+
+function runTestCommand(run, label, command, args, env = {}) {
+  const startedAt = Date.now();
+  run.step = label;
+  run.message = label;
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: rootDir,
+      env: localTestEnvironment(env),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
+    });
+    const log = fs.createWriteStream(run.logPath, { flags: 'a' });
+    let tail = '';
+    let settled = false;
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      terminateTestProcess(child);
+    }, testRunCommandTimeoutMs);
+    run.child = child;
+
+    const capture = (chunk) => {
+      log.write(chunk);
+      tail = `${tail}${chunk.toString('utf8')}`.slice(-testRunMaxLogTailLength);
+    };
+    child.stdout.on('data', capture);
+    child.stderr.on('data', capture);
+
+    child.once('error', (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      run.child = null;
+      log.end();
+      reject(error);
+    });
+
+    child.once('close', (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      run.child = null;
+      log.end();
+      const step = {
+        name: label,
+        exitCode: code === null ? 1 : code,
+        durationMs: Date.now() - startedAt,
+        timedOut,
+        signal: signal || null,
+        outputTail: tail,
+      };
+      run.steps.push(step);
+      resolve(step);
+    });
   });
-  if (!response.ok) {
-    throw new Error(`GitHub Actions API returned HTTP ${response.status}.`);
+}
+
+function scheduleTestRunCleanup(run) {
+  const cleanup = setTimeout(() => {
+    testRuns.delete(run.requestId);
+    fs.rm(run.outputDir, { recursive: true, force: true }, (error) => {
+      if (error) console.error('Could not remove expired test-run files:', error.message);
+    });
+  }, testRunRetentionMs);
+  cleanup.unref();
+}
+
+async function executeLocalWebsiteTestRun(run) {
+  const python = testPythonExecutable();
+  const frontendJunit = path.join(run.outputDir, 'frontend-junit.xml');
+  const backendJunit = path.join(run.outputDir, 'backend-junit.xml');
+  const frontendObservations = path.join(run.outputDir, 'frontend-observations.json');
+  const backendObservations = path.join(run.outputDir, 'backend-observations.json');
+  const testEnvironment = {
+    TEST_RESULTS_DIR: run.outputDir,
+  };
+  const commands = [
+    {
+      label: 'Playwright: pruebas frontend',
+      args: [
+        '-m', 'pytest', '-q', '-m', 'frontend',
+        `--junitxml=${frontendJunit}`,
+      ],
+      env: { ...testEnvironment, TEST_OBSERVATIONS_PATH: frontendObservations },
+    },
+    {
+      label: 'pytest: contratos de APIs backend',
+      args: [
+        '-m', 'pytest', '-q', '-m', 'backend',
+        `--junitxml=${backendJunit}`,
+      ],
+      env: { ...testEnvironment, TEST_OBSERVATIONS_PATH: backendObservations },
+    },
+    {
+      label: 'Generando reporte PDF frontend/backend',
+      args: [
+        path.join(rootDir, 'tools', 'build-deployment-test-reports.py'),
+        '--frontend-junit', frontendJunit,
+        '--backend-junit', backendJunit,
+        '--frontend-observations', frontendObservations,
+        '--backend-observations', backendObservations,
+        '--output-dir', run.outputDir,
+      ],
+      env: testEnvironment,
+    },
+  ];
+
+  try {
+    for (const command of commands) {
+      const step = await runTestCommand(
+        run,
+        command.label,
+        python,
+        command.args,
+        command.env,
+      );
+      if (step.timedOut) {
+        run.error = `${command.label} excedió el tiempo máximo permitido.`;
+      }
+    }
+  } catch (error) {
+    run.error = `No se pudo ejecutar ${run.step}: ${error.message}`;
+    console.error('Local website test runner failed:', error.message);
+  } finally {
+    run.finishedAt = nowIso();
+    run.status = 'completed';
+    run.conclusion = run.error || run.steps.some((step) => step.exitCode !== 0)
+      ? 'failure'
+      : 'success';
+    run.reportPath = path.join(run.outputDir, 'pruebas-frontend-backend.pdf');
+    run.reportAvailable = fs.existsSync(run.reportPath);
+    run.step = '';
+    run.message = run.conclusion === 'success'
+      ? 'Las pruebas frontend y backend terminaron correctamente.'
+      : run.reportAvailable
+        ? 'Las pruebas terminaron con errores; el reporte está disponible.'
+        : run.error || 'Las pruebas terminaron con errores y no se pudo generar el PDF.';
+    if (activeTestRunId === run.requestId) activeTestRunId = null;
+    scheduleTestRunCleanup(run);
   }
-  const text = await response.text();
-  return text ? JSON.parse(text) : null;
-}
-
-async function findDispatchedTestRun(requestId) {
-  const runsUrl = `/actions/workflows/${testRunnerWorkflow}/runs?event=workflow_dispatch&branch=main&per_page=50`;
-  const data = await githubActionsRequest(runsUrl);
-  return (data.workflow_runs || []).find((run) => (
-    [run.display_title, run.name].some((title) => (
-      typeof title === 'string' && title.includes(requestId)
-    ))
-  )) || null;
-}
-
-async function getTestRunArtifacts(runId) {
-  const data = await githubActionsRequest(`/actions/runs/${runId}/artifacts?per_page=100`);
-  return (data.artifacts || [])
-    .filter((artifact) => (
-      artifact.expired !== true
-      && (
-        artifact.name.startsWith('pruebas-frontend-backend-')
-        || artifact.name.startsWith('pruebas-caja-roja-')
-      )
-    ))
-    .map((artifact) => ({
-      id: artifact.id,
-      name: artifact.name,
-      expiresAt: artifact.expires_at,
-    }));
-}
-
-async function getAuthorizedTestRun(ticket, userId) {
-  const decoded = verifyTestRunTicket(ticket);
-  if (!decoded || decoded.userId !== userId) return null;
-  const run = await findDispatchedTestRun(decoded.requestId);
-  return { decoded, run };
 }
 
 function readBody(req) {
@@ -529,6 +658,29 @@ function readBody(req) {
 function serveFile(res, filePath) {
   const ext = path.extname(filePath).toLowerCase();
   const type = mimeTypes[ext] || 'application/octet-stream';
+  if (ext === '.apk') {
+    fs.stat(filePath, (statError, stats) => {
+      if (statError) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Not found');
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': type,
+        'Content-Length': stats.size,
+        'Content-Disposition': 'attachment; filename="BioMedica-Android.apk"',
+        'Cache-Control': 'public, max-age=3600',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      const apkStream = fs.createReadStream(filePath);
+      apkStream.on('error', (error) => {
+        console.error('Could not stream Android app download:', error.message);
+        res.destroy(error);
+      });
+      apkStream.pipe(res);
+    });
+    return;
+  }
   // El panel se puede insertar como iframe desde este mismo origen.
   const isFlutterAsset = filePath.includes('flutter-dashboard');
   fs.readFile(filePath, (err, data) => {
@@ -544,6 +696,9 @@ function serveFile(res, filePath) {
       'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
       'Content-Security-Policy': "default-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com https://www.gstatic.com data: blob:; img-src 'self' data: https:; frame-src 'self' https://www.google.com; connect-src 'self' http: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; font-src 'self' data: https:; worker-src 'self' blob:",
     };
+    if (ext === '.apk') {
+      headers['Content-Disposition'] = 'attachment; filename="BioMedica-Android.apk"';
+    }
     if (!isFlutterAsset) {
       headers['X-Frame-Options'] = 'SAMEORIGIN';
     }
@@ -667,9 +822,16 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/test-runs' && req.method === 'POST') {
     const userId = await authorizeTestRunnerAdmin(req, res);
     if (!userId) return;
-    if (!sessionSecret || !githubActionsToken) {
+    if (!sessionSecret) {
       sendJson(res, 503, {
         error: 'El servicio de pruebas temporales todavía no está habilitado.',
+      });
+      return;
+    }
+
+    if (activeTestRunId) {
+      sendJson(res, 409, {
+        error: 'Ya hay una ejecución completa de pruebas en curso. Inténtalo cuando termine.',
       });
       return;
     }
@@ -682,48 +844,52 @@ const server = http.createServer(async (req, res) => {
       });
       return;
     }
-    if (testRunnerDispatchInProgress) {
-      sendJson(res, 409, {
-        error: 'Ya se está iniciando otra ejecución completa de pruebas. Inténtalo en un momento.',
-      });
-      return;
-    }
 
-    testRunnerDispatchInProgress = true;
     try {
-      const workflowPath = `/actions/workflows/${testRunnerWorkflow}/runs`;
-      const [queued, running] = await Promise.all([
-        githubActionsRequest(`${workflowPath}?event=workflow_dispatch&branch=main&status=queued&per_page=1`),
-        githubActionsRequest(`${workflowPath}?event=workflow_dispatch&branch=main&status=in_progress&per_page=1`),
-      ]);
-      if ((queued.workflow_runs || []).length || (running.workflow_runs || []).length) {
-        sendJson(res, 409, {
-          error: 'Ya hay una ejecución completa de pruebas en curso. Inténtalo cuando termine.',
-        });
-        return;
-      }
-
       const requestId = crypto.randomUUID();
-      await githubActionsRequest(
-        `/actions/workflows/${testRunnerWorkflow}/dispatches`,
-        'POST',
-        { ref: 'main', inputs: { request_id: requestId } },
-      );
+      const outputDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'biomedica-test-run-'));
+      const run = {
+        requestId,
+        userId,
+        outputDir,
+        logPath: path.join(outputDir, 'runner.log'),
+        status: 'in_progress',
+        conclusion: null,
+        step: 'Preparando la ejecución',
+        message: 'Iniciando las pruebas Playwright y pytest en este servicio.',
+        steps: [],
+        startedAt: nowIso(),
+        finishedAt: null,
+        reportPath: null,
+        reportAvailable: false,
+        error: null,
+        child: null,
+      };
+      testRuns.set(requestId, run);
+      activeTestRunId = requestId;
       testRunnerCooldowns.set(userId, Date.now());
       const ticket = createTestRunTicket(requestId, userId);
       sendJson(res, 202, {
         requestId,
         ticket,
-        status: 'queued',
-        message: 'Ejecución completa de pruebas enviada a la cola.',
+        status: run.status,
+        message: run.message,
+      });
+      executeLocalWebsiteTestRun(run).catch((error) => {
+        console.error('Local website test runner failed:', error.message);
+        run.error = `No se pudo completar la ejecución: ${error.message}`;
+        run.status = 'completed';
+        run.conclusion = 'failure';
+        run.finishedAt = nowIso();
+        run.message = 'No se pudo completar la ejecución de pruebas.';
+        if (activeTestRunId === requestId) activeTestRunId = null;
+        scheduleTestRunCleanup(run);
       });
     } catch (error) {
-      console.error('Could not dispatch the full test suite:', error.message);
-      sendJson(res, 502, {
+      console.error('Could not create the local test run:', error.message);
+      sendJson(res, 500, {
         error: 'No se pudo iniciar la ejecución completa de pruebas.',
       });
-    } finally {
-      testRunnerDispatchInProgress = false;
     }
     return;
   }
@@ -738,95 +904,77 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 404, { error: 'No se encontró esta ejecución de pruebas.' });
       return;
     }
-
-    try {
-      const run = await findDispatchedTestRun(decoded.requestId);
-      if (!run) {
-        sendJson(res, 202, {
-          requestId: decoded.requestId,
-          status: 'queued',
-          artifacts: [],
-        });
-        return;
-      }
-      const artifacts = run.status === 'completed'
-        ? await getTestRunArtifacts(run.id)
-        : [];
-      sendJson(res, 200, {
-        requestId: decoded.requestId,
-        runId: run.id,
-        runUrl: run.html_url,
-        status: run.status,
-        conclusion: run.conclusion,
-        artifacts,
-      });
-    } catch (error) {
-      console.error('Could not read full test suite status:', error.message);
-      sendJson(res, 502, { error: 'No se pudo consultar el avance de las pruebas.' });
+    const run = testRuns.get(decoded.requestId);
+    if (!run || run.userId !== userId) {
+      sendJson(res, 404, { error: 'No se encontró esta ejecución de pruebas.' });
+      return;
     }
+    sendJson(res, 200, {
+      requestId: run.requestId,
+      status: run.status,
+      conclusion: run.conclusion,
+      step: run.step,
+      message: run.message,
+      error: run.error,
+      reportAvailable: run.reportAvailable,
+      steps: run.steps.map(({ name, exitCode, durationMs, timedOut }) => ({
+        name,
+        exitCode,
+        durationMs,
+        timedOut,
+      })),
+      startedAt: run.startedAt,
+      finishedAt: run.finishedAt,
+    });
     return;
   }
 
-  const testArtifactMatch = pathname.match(/^\/api\/test-runs\/([^/]+)\/artifacts\/(\d+)$/);
-  if (testArtifactMatch && req.method === 'GET') {
+  const testRunReportMatch = pathname.match(/^\/api\/test-runs\/([^/]+)\/report$/);
+  if (testRunReportMatch && req.method === 'GET') {
     const userId = await authorizeTestRunnerAdmin(req, res);
     if (!userId) return;
-    const ticket = testArtifactMatch[1];
-    const artifactId = Number(testArtifactMatch[2]);
+    const ticket = testRunReportMatch[1];
     const decoded = verifyTestRunTicket(ticket);
     if (!decoded || decoded.userId !== userId) {
       sendJson(res, 404, { error: 'No se encontró esta ejecución de pruebas.' });
       return;
     }
 
-    try {
-      const run = await findDispatchedTestRun(decoded.requestId);
-      if (!run || run.status !== 'completed') {
-        sendJson(res, 409, { error: 'Los reportes estarán disponibles cuando terminen las pruebas.' });
-        return;
-      }
-      const artifacts = await getTestRunArtifacts(run.id);
-      const artifact = artifacts.find((item) => item.id === artifactId);
-      if (!artifact) {
-        sendJson(res, 404, { error: 'El reporte solicitado no está disponible.' });
-        return;
-      }
-
-      const repoPath = testRunnerRepoPath();
-      const upstream = await fetch(
-        `https://api.github.com/repos/${repoPath}/actions/artifacts/${artifact.id}/zip`,
-        {
-          headers: {
-            Accept: 'application/vnd.github+json',
-            Authorization: `Bearer ${githubActionsToken}`,
-            'X-GitHub-Api-Version': '2022-11-28',
-          },
-          signal: AbortSignal.timeout(30000),
-        },
-      );
-      if (!upstream.ok) {
-        sendJson(res, 502, { error: 'No se pudo descargar el reporte de pruebas.' });
-        return;
-      }
-      const archive = Buffer.from(await upstream.arrayBuffer());
-      if (archive.length > 25 * 1024 * 1024) {
-        sendJson(res, 413, { error: 'El archivo del reporte excede el tamaño permitido.' });
-        return;
-      }
-      const filename = `${artifact.name.replace(/[^A-Za-z0-9._-]/g, '-')}.zip`;
-      res.writeHead(200, {
-        'Content-Type': 'application/zip',
-        'Content-Length': archive.length,
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Cache-Control': 'no-store',
-        'X-Content-Type-Options': 'nosniff',
-        'Access-Control-Allow-Origin': '*',
-      });
-      res.end(archive);
-    } catch (error) {
-      console.error('Could not download test report:', error.message);
-      sendJson(res, 502, { error: 'No se pudo descargar el reporte de pruebas.' });
+    const run = testRuns.get(decoded.requestId);
+    if (!run || run.userId !== userId) {
+      sendJson(res, 404, { error: 'No se encontró esta ejecución de pruebas.' });
+      return;
     }
+    if (run.status !== 'completed') {
+      sendJson(res, 409, { error: 'El reporte estará disponible cuando terminen las pruebas.' });
+      return;
+    }
+    if (!run.reportAvailable || !run.reportPath || !fs.existsSync(run.reportPath)) {
+      sendJson(res, 404, { error: 'No se pudo generar el reporte de pruebas.' });
+      return;
+    }
+    let stat;
+    try {
+      stat = await fs.promises.stat(run.reportPath);
+    } catch (error) {
+      console.error('Could not inspect local test report:', error.message);
+      sendJson(res, 404, { error: 'El reporte solicitado ya no está disponible.' });
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/pdf',
+      'Content-Length': stat.size,
+      'Content-Disposition': 'attachment; filename="pruebas-frontend-backend.pdf"',
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Access-Control-Allow-Origin': '*',
+    });
+    const report = fs.createReadStream(run.reportPath);
+    report.on('error', (error) => {
+      console.error('Could not read local test report:', error.message);
+      res.destroy(error);
+    });
+    report.pipe(res);
     return;
   }
 

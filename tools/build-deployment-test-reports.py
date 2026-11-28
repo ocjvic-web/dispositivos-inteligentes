@@ -109,9 +109,9 @@ def make_web_report(args, output_dir):
     frontend_observations = load_json(args.frontend_observations)
     backend_observations = load_json(args.backend_observations)
     api_probes = backend_observations.get("apiProbes", [])
-    angular_log = Path(args.angular_log)
+    angular_log = Path(args.angular_log) if args.angular_log else None
     angular_match = None
-    if angular_log.is_file():
+    if angular_log and angular_log.is_file():
         angular_match = re.search(
             r"TOTAL:\s+(\d+)\s+SUCCESS",
             angular_log.read_text(encoding="utf-8", errors="replace"),
@@ -137,7 +137,9 @@ def make_web_report(args, output_dir):
         "Contratos API (backend)": backend_summary["total"],
         "Total": total,
         "Pruebas unitarias Angular": (
-            f"{angular_match.group(1)} aprobadas" if angular_match else "ver log del artefacto"
+            f"{angular_match.group(1)} aprobadas"
+            if angular_match
+            else "no incluidas en esta ejecución"
         ),
         "Commit": os.environ.get("GITHUB_SHA", "ejecución local"),
         "Workflow": os.environ.get("GITHUB_RUN_ID", "ejecución local"),
@@ -307,7 +309,7 @@ def make_redbox_report(args, output_dir):
     note = (
         "Caja roja ejercita entradas inválidas y fallos controlados de conectividad/"
         "servicio. No es una prueba de intrusión ni genera carga contra servicios "
-        "productivos. El log de terminal detallado se adjunta al artefacto de CI."
+        "productivos. El log detallado se conserva junto al resumen JSON de la ejecución."
     )
     content = (
         "<h2>Resultados por suite</h2>"
@@ -364,20 +366,28 @@ def render_pdf(html_path, pdf_path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--frontend-junit", required=True)
-    parser.add_argument("--backend-junit", required=True)
-    parser.add_argument("--frontend-observations", required=True)
-    parser.add_argument("--backend-observations", required=True)
-    parser.add_argument("--angular-log", required=True)
-    parser.add_argument("--redbox-summary", required=True)
+    parser.add_argument("--frontend-junit")
+    parser.add_argument("--backend-junit")
+    parser.add_argument("--frontend-observations")
+    parser.add_argument("--backend-observations")
+    parser.add_argument("--angular-log")
+    parser.add_argument("--redbox-summary")
+    parser.add_argument("--redbox-only", action="store_true")
     parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
+    if args.redbox_only and not args.redbox_summary:
+        parser.error("--redbox-only requires --redbox-summary")
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    if args.redbox_only:
+        redbox_pdf = make_redbox_report(args, output_dir)
+        print(f"Red-box PDF: {redbox_pdf} ({redbox_pdf.stat().st_size} bytes)")
+        return
     web_pdf = make_web_report(args, output_dir)
-    redbox_pdf = make_redbox_report(args, output_dir)
     print(f"Frontend/backend PDF: {web_pdf} ({web_pdf.stat().st_size} bytes)")
-    print(f"Red-box PDF: {redbox_pdf} ({redbox_pdf.stat().st_size} bytes)")
+    if args.redbox_summary:
+        redbox_pdf = make_redbox_report(args, output_dir)
+        print(f"Red-box PDF: {redbox_pdf} ({redbox_pdf.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":

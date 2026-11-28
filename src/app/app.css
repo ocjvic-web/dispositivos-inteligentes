@@ -274,6 +274,92 @@ a {
   margin-top: 22px;
 }
 
+.app-download-section .section-header {
+  max-width: 860px;
+  margin: 0 auto 24px;
+  text-align: center;
+}
+
+.app-download-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 10px;
+  text-decoration: none;
+}
+
+.app-download-note {
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+}
+
+.app-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.app-feature-card {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+.app-feature-icon {
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 12px;
+  background: #eaf2ff;
+  font-size: 1.35rem;
+}
+
+.app-feature-card h3,
+.app-setup-card h3 {
+  margin: 14px 0 7px;
+  color: #143471;
+  font-size: 1.04rem;
+}
+
+.app-feature-card p,
+.app-setup-card p,
+.app-setup-card li {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.app-feature-card p {
+  margin: 0;
+}
+
+.app-setup-card {
+  margin-top: 16px;
+  padding: 20px 24px;
+  border: 1px solid #c9dafa;
+  border-radius: var(--r-md);
+  background: linear-gradient(135deg, #f7fbff, #edf5ff);
+}
+
+.app-setup-card h3 {
+  margin-top: 0;
+}
+
+.app-setup-card ol {
+  display: grid;
+  gap: 7px;
+  padding-left: 22px;
+}
+
+.app-setup-card p {
+  margin: 10px 0 0;
+}
+
 .inicio-view > .section {
   padding-top: clamp(28px, 3.6vw, 52px);
   padding-bottom: clamp(28px, 3.6vw, 52px);
@@ -1619,11 +1705,6 @@ a {
   text-align: center;
 }
 
-.footer-test-run-link {
-  color: #bfdbfe;
-  font-weight: 700;
-}
-
 .flutter-badge {
   display: flex;
   align-items: center;
@@ -1692,6 +1773,10 @@ a {
   }
 
   .stats-banner {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .app-feature-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1776,6 +1861,14 @@ a {
     margin: 14px auto;
     grid-template-columns: 1fr 1fr;
     padding: 0;
+  }
+
+  .app-feature-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .app-setup-card {
+    padding: 18px;
   }
 
   .hero-slider {

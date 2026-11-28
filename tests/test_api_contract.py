@@ -11,6 +11,7 @@ API_CONTRACTS = [
     ("core-reports", "GET", "/api/core/reports", None, 401),
     ("review-report", "PATCH", "/api/core/reports/test-report/review", None, 401),
     ("chat-notification", "POST", "/api/core/chat/notifications", None, 401),
+    ("test-run-unauthenticated", "POST", "/api/test-runs", None, 401),
     ("devices", "GET", "/api/devices", None, 200),
     ("status-full", "GET", "/api/status", None, 200),
     ("status-compact", "GET", "/api/status?compact=1", None, 200),
